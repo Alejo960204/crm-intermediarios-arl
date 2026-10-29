@@ -60,6 +60,19 @@ def guardar(usuario: dict, registro_id: int, datos_json, archivos: dict[str, lis
             if len(contenido) > MAX_BYTES:
                 raise _error(loc, f"'{nombre}' supera el máximo de 5 MB")
 
+    # Req 17: al menos una experiencia y cada una con al menos un certificado laboral (PDF)
+    if not datos.experiencias:
+        raise _error(["experiencias"], "Registre al menos una experiencia laboral con su certificado (PDF)")
+    existentes = {e["id"]: {s["id"] for s in e["soportes"]} for e in humana_repository.obtener(registro_id)["experiencias"]}
+    sin_certificado = []
+    for i, x in enumerate(datos.experiencias):
+        conservados = len(set(x.soportes_conservar) & existentes.get(x.id, set()))
+        if conservados + len(archivos.get(x.clave, [])) == 0:
+            sin_certificado.append({"loc": ["body", "experiencias", i, "soportes"],
+                                    "msg": "Adjunte al menos un certificado laboral (PDF)"})
+    if sin_certificado:
+        raise HTTPException(422, detail=sin_certificado)
+
     creados: list[str] = []
     nuevos: dict[str, list[dict]] = {}
     try:

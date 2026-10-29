@@ -9,7 +9,7 @@ export default function Home() {
   useEffect(() => {
     if (!getToken()) { router.replace("/login"); return; }
     obtenerUsuarioActual()
-      .then((u) => router.replace(u.rol === "root Admin" ? "/dashboard" : u.rol === "empleado" ? "/procesos" : "/registros"))
+      .then((u) => router.replace(u.rol === "root Admin" ? "/dashboard" : u.rol === "empleado" ? "/procesos" : "/mi-panel"))
       .catch(() => { clearToken(); router.replace("/login"); });
   }, [router]);
   return <main className="p-6 text-sm text-slate-500">Cargando...</main>;

@@ -31,11 +31,19 @@ def faltantes(registro: dict) -> list[dict]:
         ("telefono_fijo", "Teléfono fijo", "telefono_fijo"),
     ])
 
-    if not idoneidad_repository.listar(rid):
+    personas = idoneidad_repository.listar(rid)
+    if not personas:
         por_pestana[1] = [{"campo": "personas", "etiqueta": "Equipo de intermediación",
                            "mensaje": "Registre al menos una persona en el equipo"}]
+    else:  # Req 16: el nivel educativo es obligatorio (los registros anteriores quedan vacíos hasta que se edite la pestaña)
+        sin_nivel = [{"campo": f"personas.{i}.nivel_educativo", "etiqueta": f"Nivel educativo de la persona {i + 1}",
+                      "mensaje": "Seleccione el nivel educativo"}
+                     for i, p in enumerate(personas) if _vacio(p.get("nivel_educativo"))]
+        if sin_nivel:
+            por_pestana[1] = sin_nivel
 
-    por_pestana[2] = _revisar(humana_repository.obtener(rid)["responsable"], [
+    humana = humana_repository.obtener(rid)
+    por_pestana[2] = _revisar(humana["responsable"], [
         ("nombres_apellidos", "Nombres y apellidos del responsable", "nombres_apellidos"),
         ("tipo_documento", "Tipo de documento del responsable", "tipo_documento"),
         ("numero_documento", "Número de documento del responsable", "numero_documento"),
@@ -43,11 +51,20 @@ def faltantes(registro: dict) -> list[dict]:
         ("correo", "Correo del responsable", "correo"),
         ("telefono", "Teléfono del responsable", "telefono"),
     ], prefijo="responsable.")
+    # Req 17: al menos una experiencia y cada una con su certificado laboral
+    if not humana["experiencias"]:
+        por_pestana[2].append({"campo": "experiencias", "etiqueta": "Experiencia laboral",
+                               "mensaje": "Registre al menos una experiencia laboral con su certificado"})
+    por_pestana[2] += [{"campo": f"experiencias.{i}.soportes", "etiqueta": f"Certificado laboral de la experiencia {i + 1}",
+                        "mensaje": "Adjunte al menos un certificado laboral (PDF)"}
+                       for i, e in enumerate(humana["experiencias"]) if not e["soportes"]]
 
     por_pestana[3] = _revisar(operativa_repository.obtener(rid), [
         ("linea_1", "Línea telefónica 1", "linea_1"),
         ("linea_2", "Línea telefónica 2", "linea_2"),
         ("correo", "Correo electrónico de atención", "correo"),
+        ("whatsapp", "Línea de atención vía WhatsApp", "whatsapp"),
+        ("enlace_web", "Enlace web", "enlace_web"),
     ])
 
     firma = firma_repository.obtener(rid)

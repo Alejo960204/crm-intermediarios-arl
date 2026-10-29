@@ -2,7 +2,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ApiError, MAX_SOPORTE_BYTES, TIPOS_DOCUMENTO, clearToken, descargarSoporte, guardarIdoneidad, listarIdoneidad,
+  ApiError, MAX_SOPORTE_BYTES, NIVELES_EDUCATIVOS, TIPOS_DOCUMENTO, clearToken, descargarSoporte, guardarIdoneidad, listarIdoneidad,
   type SoporteInfo,
 } from "@/lib/api";
 import { useSucio, type PestanaHandle, type PropsPestana } from "@/lib/pestanas";
@@ -14,6 +14,8 @@ interface Fila {
   tipo_documento: string;
   numero_documento: string;
   cargo: string;
+  nivel_educativo: string;
+  descripcion_nivel_educativo: string;
   correo: string;
   telefono: string;
   soportes: SoporteInfo[]; // ya guardados
@@ -24,7 +26,7 @@ const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm dis
 const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad(
-  { registroId, soloLectura, faltantes, onGuardado }, ref,
+  { registroId, soloLectura, faltantes, onGuardado, onSucio }, ref,
 ) {
   const router = useRouter();
   const contador = useRef(0);
@@ -46,7 +48,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad
   function aFilas(datos: Awaited<ReturnType<typeof listarIdoneidad>>): Fila[] {
     return datos.map((p) => ({
       clave: nuevaClave(), id: p.id, nombres_apellidos: p.nombres_apellidos, tipo_documento: p.tipo_documento,
-      numero_documento: p.numero_documento, cargo: p.cargo ?? "", correo: p.correo ?? "", telefono: p.telefono ?? "",
+      numero_documento: p.numero_documento, cargo: p.cargo ?? "", nivel_educativo: p.nivel_educativo ?? "",
+      descripcion_nivel_educativo: p.descripcion_nivel_educativo ?? "", correo: p.correo ?? "", telefono: p.telefono ?? "",
       soportes: p.soportes, nuevos: [],
     }));
   }
@@ -75,7 +78,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad
   function agregar() {
     setFilas((fs) => [...fs, {
       clave: nuevaClave(), id: null, nombres_apellidos: "", tipo_documento: "CC", numero_documento: "",
-      cargo: "", correo: "", telefono: "", soportes: [], nuevos: [],
+      cargo: "", nivel_educativo: "", descripcion_nivel_educativo: "", correo: "", telefono: "", soportes: [], nuevos: [],
     }]);
     limpiarAvisos();
   }
@@ -117,7 +120,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad
     try {
       const personas = filas.map((f) => ({
         id: f.id, clave: f.clave, nombres_apellidos: f.nombres_apellidos, tipo_documento: f.tipo_documento,
-        numero_documento: f.numero_documento, cargo: f.cargo, correo: f.correo, telefono: f.telefono,
+        numero_documento: f.numero_documento, cargo: f.cargo, nivel_educativo: f.nivel_educativo,
+        descripcion_nivel_educativo: f.descripcion_nivel_educativo, correo: f.correo, telefono: f.telefono,
         soportes_conservar: f.soportes.map((s) => s.id),
       }));
       const archivos = Object.fromEntries(filas.filter((f) => f.nuevos.length).map((f) => [f.clave, f.nuevos]));
@@ -134,6 +138,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad
     return ok;
   }
 
+  // Avisa al formulario si hay cambios sin guardar (habilita o bloquea «Siguiente»)
+  useEffect(() => { onSucio?.(sucio); }, [sucio]); // eslint-disable-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => ({ guardar, sucio: () => sucio }));
 
   if (cargando) return <p className="text-sm text-slate-500">Cargando...</p>;
@@ -196,6 +202,20 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaIdoneidad
                 <input value={f.telefono} disabled={soloLectura} className={INPUT}
                   onChange={(e) => cambiar(f.clave, "telefono", e.target.value)} />
                 {err(i, "telefono") && <span className="text-xs text-red-600">{err(i, "telefono")}</span>}
+              </label>
+              <label className="block text-sm sm:col-span-2">Nivel educativo <span className="text-red-600">*</span>
+                <select value={f.nivel_educativo} disabled={soloLectura} className={INPUT}
+                  onChange={(e) => cambiar(f.clave, "nivel_educativo", e.target.value)}>
+                  <option value="">Seleccione...</option>
+                  {NIVELES_EDUCATIVOS.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                {err(i, "nivel_educativo") && <span className="text-xs text-red-600">{err(i, "nivel_educativo")}</span>}
+              </label>
+              <label className="block text-sm sm:col-span-4">Descripción del nivel educativo
+                <input value={f.descripcion_nivel_educativo} disabled={soloLectura} maxLength={200} className={INPUT}
+                  placeholder="Ej.: Ingeniero Industrial, Especialista en Gerencia de la SST"
+                  onChange={(e) => cambiar(f.clave, "descripcion_nivel_educativo", e.target.value)} />
+                {err(i, "descripcion_nivel_educativo") && <span className="text-xs text-red-600">{err(i, "descripcion_nivel_educativo")}</span>}
               </label>
             </div>
 

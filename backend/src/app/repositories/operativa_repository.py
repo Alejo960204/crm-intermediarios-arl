@@ -1,6 +1,6 @@
 from ..database import get_cursor
 
-_CAMPOS = ("linea_1", "linea_2", "linea_3", "fax", "correo", "direccion_atencion")
+_CAMPOS = ("linea_1", "linea_2", "whatsapp", "enlace_web", "correo", "direccion_atencion")
 
 
 def obtener(registro_id: int) -> dict:
@@ -8,7 +8,7 @@ def obtener(registro_id: int) -> dict:
         cur.execute(f"SELECT {', '.join(_CAMPOS)} FROM infraestructura_operativa WHERE registro_id = %s", (registro_id,))
         datos = cur.fetchone() or {c: None for c in _CAMPOS}
         cur.execute(
-            "SELECT tipo, nombre, descripcion FROM items_tecnologia WHERE registro_id = %s ORDER BY id", (registro_id,)
+            "SELECT tipo, nombre, descripcion, serie, ubicacion FROM items_tecnologia WHERE registro_id = %s ORDER BY id", (registro_id,)
         )
         items = cur.fetchall()
         cur.execute(
@@ -17,7 +17,8 @@ def obtener(registro_id: int) -> dict:
         )
         soportes = cur.fetchall()
     datos["software"] = [{"nombre": i["nombre"], "descripcion": i["descripcion"]} for i in items if i["tipo"] == "software"]
-    datos["equipos"] = [{"nombre": i["nombre"], "descripcion": i["descripcion"]} for i in items if i["tipo"] == "equipo"]
+    datos["equipos"] = [{"nombre": i["nombre"], "descripcion": i["descripcion"], "serie": i["serie"], "ubicacion": i["ubicacion"]}
+                        for i in items if i["tipo"] == "equipo"]
     datos["soportes"] = soportes
     return datos
 
@@ -38,11 +39,11 @@ def sincronizar(registro_id: int, datos: dict, software: list[dict], equipos: li
         cur.execute(
             """
             INSERT INTO infraestructura_operativa
-                (registro_id, linea_1, linea_2, linea_3, fax, correo, direccion_atencion)
-            VALUES (%(registro_id)s, %(linea_1)s, %(linea_2)s, %(linea_3)s, %(fax)s, %(correo)s, %(direccion_atencion)s)
+                (registro_id, linea_1, linea_2, whatsapp, enlace_web, correo, direccion_atencion)
+            VALUES (%(registro_id)s, %(linea_1)s, %(linea_2)s, %(whatsapp)s, %(enlace_web)s, %(correo)s, %(direccion_atencion)s)
             ON CONFLICT (registro_id) DO UPDATE SET
-                linea_1 = EXCLUDED.linea_1, linea_2 = EXCLUDED.linea_2, linea_3 = EXCLUDED.linea_3,
-                fax = EXCLUDED.fax, correo = EXCLUDED.correo, direccion_atencion = EXCLUDED.direccion_atencion,
+                linea_1 = EXCLUDED.linea_1, linea_2 = EXCLUDED.linea_2, whatsapp = EXCLUDED.whatsapp,
+                enlace_web = EXCLUDED.enlace_web, correo = EXCLUDED.correo, direccion_atencion = EXCLUDED.direccion_atencion,
                 fecha_actualizacion = now()
             """,
             {**{c: datos[c] for c in _CAMPOS}, "registro_id": registro_id},
@@ -52,8 +53,9 @@ def sincronizar(registro_id: int, datos: dict, software: list[dict], equipos: li
         for tipo, lista in (("software", software), ("equipo", equipos)):
             for it in lista:
                 cur.execute(
-                    "INSERT INTO items_tecnologia (registro_id, tipo, nombre, descripcion) VALUES (%s, %s, %s, %s)",
-                    (registro_id, tipo, it["nombre"], it["descripcion"]),
+                    "INSERT INTO items_tecnologia (registro_id, tipo, nombre, descripcion, serie, ubicacion) VALUES (%s, %s, %s, %s, %s, %s)",
+                    (registro_id, tipo, it["nombre"], it["descripcion"],
+                     it.get("serie") if tipo == "equipo" else None, it.get("ubicacion") if tipo == "equipo" else None),
                 )
 
         cur.execute("SELECT id, ruta_archivo FROM soportes_camara_comercio WHERE registro_id = %s", (registro_id,))

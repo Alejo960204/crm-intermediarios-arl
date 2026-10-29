@@ -1,3 +1,90 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ===== Paleta del logotipo Progrescol: azul marino #14405F, azul cielo #10A0D0, verde #80B030 =====
+   Todos los colores de la aplicación salen de estas variables (ver tailwind.config.ts); el modo oscuro solo las redefine. */
+:root {
+  --superficie: 255 255 255;
+  --titulo: 20 64 95;
+  --slate-50: 244 247 250; --slate-100: 232 238 244; --slate-200: 218 226 235; --slate-300: 195 206 220; --slate-400: 148 163 184;
+  --slate-500: 100 116 139; --slate-600: 71 85 105; --slate-700: 51 65 85; --slate-800: 30 41 59; --slate-900: 15 35 55;
+  --blue-50: 238 247 251; --blue-100: 217 238 247; --blue-200: 179 221 238; --blue-300: 124 195 224; --blue-400: 63 176 217;
+  --blue-500: 16 160 208; --blue-600: 13 127 166; --blue-700: 20 64 95; --blue-800: 15 50 80; --blue-900: 10 36 56;
+  --green-50: 243 249 232; --green-100: 228 242 204; --green-200: 205 230 160; --green-300: 168 208 96;
+  --green-500: 128 176 48; --green-600: 98 146 28; --green-700: 62 110 14; --green-800: 45 85 10;
+  --red-50: 254 242 242; --red-100: 254 226 226; --red-200: 254 202 202; --red-300: 252 165 165;
+  --red-500: 239 68 68; --red-600: 220 38 38; --red-700: 185 28 28; --red-800: 153 27 27;
+  --amber-50: 255 251 235; --amber-100: 254 243 199; --amber-200: 253 230 138; --amber-300: 252 211 77; --amber-400: 251 191 36;
+  --amber-500: 245 158 11; --amber-700: 180 83 9; --amber-800: 146 64 14; --amber-900: 120 53 15;
+}
+.dark {
+  color-scheme: dark;
+  --superficie: 17 28 46;
+  --titulo: 226 232 240;
+  --slate-50: 10 20 34; --slate-100: 22 34 52; --slate-200: 33 47 68; --slate-300: 51 65 85; --slate-400: 100 116 139;
+  --slate-500: 148 163 184; --slate-600: 170 182 200; --slate-700: 203 213 225; --slate-800: 226 232 240; --slate-900: 5 12 22;
+  --blue-50: 12 36 52; --blue-100: 16 52 74; --blue-200: 20 70 98; --blue-300: 30 100 135; --blue-400: 40 140 180;
+  --blue-500: 16 160 208; --blue-600: 22 150 195; --blue-700: 24 135 180; --blue-800: 125 211 240; --blue-900: 186 230 247;
+  --green-50: 22 38 14; --green-100: 30 56 18; --green-200: 44 80 24; --green-300: 70 120 30;
+  --green-500: 128 176 48; --green-600: 140 190 60; --green-700: 150 205 70; --green-800: 186 225 120;
+  --red-50: 52 18 22; --red-100: 74 24 30; --red-200: 100 30 38; --red-300: 150 50 55;
+  --red-500: 239 68 68; --red-600: 248 113 113; --red-700: 252 140 140; --red-800: 254 190 190;
+  --amber-50: 48 34 10; --amber-100: 70 50 12; --amber-200: 100 72 14; --amber-300: 140 100 20; --amber-400: 251 191 36;
+  --amber-500: 245 158 11; --amber-700: 252 190 70; --amber-800: 253 211 110; --amber-900: 254 230 160;
+}
+
+body {
+  background-image:
+    radial-gradient(900px 420px at 100% -10%, rgb(16 160 208 / 0.08), transparent 60%),
+    radial-gradient(700px 380px at -10% 110%, rgb(128 176 48 / 0.08), transparent 60%);
+  background-attachment: fixed;
+}
+h1 { color: rgb(var(--titulo)); letter-spacing: -0.01em; }
+
+/* Tarjetas y fondos blancos: la "superficie" cambia en modo oscuro */
+.dark .bg-white { background-color: rgb(var(--superficie)); }
+.dark .bg-white\/90 { background-color: rgb(var(--superficie) / 0.9); }
+.dark .bg-black { background-color: #000; }
+.dark .bg-red-700 { background-color: #b91c1c; }
+.dark .bg-green-700 { background-color: #3e6e0e; }
+.dark .bg-amber-700 { background-color: #b45309; }
+.shadow { box-shadow: 0 1px 2px rgb(15 35 55 / 0.06), 0 4px 14px rgb(15 35 55 / 0.07); }
+.dark .shadow { box-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.35); }
+
+/* Campos de formulario */
+input, select, textarea { background-color: rgb(var(--superficie)); transition: border-color .15s, box-shadow .15s; }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: rgb(var(--blue-500)); box-shadow: 0 0 0 3px rgb(16 160 208 / 0.25);
+}
+input[type="checkbox"], input[type="radio"] { accent-color: #10A0D0; }
+.canvas-firma { background-color: #fff !important; }
+
+/* Botones y enlaces: transiciones suaves; el botón principal usa el degradado de la marca */
+a, button { transition: background-color .15s, color .15s, border-color .15s, box-shadow .15s, transform .15s, opacity .15s; }
+button:not(:disabled):active { transform: scale(0.98); }
+button.bg-blue-700, a.bg-blue-700 {
+  background-image: linear-gradient(135deg, rgb(var(--blue-700)), rgb(var(--blue-500)));
+  box-shadow: 0 2px 8px rgb(16 160 208 / 0.28);
+}
+button.bg-blue-700:not(:disabled):hover, a.bg-blue-700:hover { filter: brightness(1.08); box-shadow: 0 4px 14px rgb(16 160 208 / 0.4); }
+button.border:not(:disabled):hover, a.border:hover { border-color: rgb(var(--blue-500)); color: rgb(var(--blue-700)); }
+
+/* Tarjetas-enlace (Dashboard, Mi panel): se elevan al pasar el mouse */
+a.shadow:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgb(16 160 208 / 0.18); }
+
+/* Tablas */
+thead { background-image: linear-gradient(90deg, rgb(var(--blue-50)), rgb(var(--green-50))); }
+thead.bg-slate-100 { background-color: transparent; }
+tbody tr { transition: background-color .12s; }
+tbody tr:hover { background-color: rgb(var(--blue-50) / 0.7); }
+
+/* Aparición suave de cada pantalla */
+main { animation: entrar .35s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Esquinas un poco más redondeadas */
+.rounded { border-radius: 0.5rem; }
+.rounded-lg { border-radius: 0.875rem; }

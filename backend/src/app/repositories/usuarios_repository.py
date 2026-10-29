@@ -64,3 +64,14 @@ def crear_varios(usuarios: list[dict]) -> set[str]:
             if cur.fetchone():
                 creados.add(u["email"])
     return creados
+
+
+def cambiar_password(usuario_id: int, password_hash: str) -> None:
+    with get_cursor() as cur:
+        cur.execute("UPDATE usuarios SET password_hash = %s WHERE id = %s", (password_hash, usuario_id))
+
+
+def registrar_consentimiento(usuario_id: int, version: str, ip: str | None) -> None:
+    with get_cursor() as cur:
+        cur.execute("INSERT INTO consentimientos_datos (usuario_id, version, ip) VALUES (%s, %s, %s)",
+                    (usuario_id, version, ip))

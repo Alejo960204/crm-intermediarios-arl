@@ -5,7 +5,8 @@ def listar(registro_id: int) -> list[dict]:
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT id, nombres_apellidos, tipo_documento, numero_documento, cargo, correo, telefono
+            SELECT id, nombres_apellidos, tipo_documento, numero_documento, cargo, nivel_educativo, descripcion_nivel_educativo,
+                   correo, telefono
             FROM personas_idoneidad WHERE registro_id = %s ORDER BY id
             """,
             (registro_id,),
@@ -64,14 +65,16 @@ def sincronizar(registro_id: int, personas: list[dict], archivos_nuevos: dict[st
             cur.execute("DELETE FROM personas_idoneidad WHERE id = %s", (persona_id,))  # cascada a soportes
 
         for p in personas:
-            campos = {k: p[k] for k in ("nombres_apellidos", "tipo_documento", "numero_documento", "cargo", "correo", "telefono")}
+            campos = {k: p[k] for k in ("nombres_apellidos", "tipo_documento", "numero_documento", "cargo", "nivel_educativo",
+                                      "descripcion_nivel_educativo", "correo", "telefono")}
             if p["id"] is None:
                 cur.execute(
                     """
                     INSERT INTO personas_idoneidad
-                        (registro_id, nombres_apellidos, tipo_documento, numero_documento, cargo, correo, telefono)
+                        (registro_id, nombres_apellidos, tipo_documento, numero_documento, cargo, nivel_educativo,
+                         descripcion_nivel_educativo, correo, telefono)
                     VALUES (%(registro_id)s, %(nombres_apellidos)s, %(tipo_documento)s, %(numero_documento)s,
-                            %(cargo)s, %(correo)s, %(telefono)s) RETURNING id
+                            %(cargo)s, %(nivel_educativo)s, %(descripcion_nivel_educativo)s, %(correo)s, %(telefono)s) RETURNING id
                     """,
                     {**campos, "registro_id": registro_id},
                 )
@@ -82,7 +85,8 @@ def sincronizar(registro_id: int, personas: list[dict], archivos_nuevos: dict[st
                     """
                     UPDATE personas_idoneidad SET nombres_apellidos = %(nombres_apellidos)s,
                         tipo_documento = %(tipo_documento)s, numero_documento = %(numero_documento)s,
-                        cargo = %(cargo)s, correo = %(correo)s, telefono = %(telefono)s
+                        cargo = %(cargo)s, nivel_educativo = %(nivel_educativo)s,
+                        descripcion_nivel_educativo = %(descripcion_nivel_educativo)s, correo = %(correo)s, telefono = %(telefono)s
                     WHERE id = %(id)s
                     """,
                     {**campos, "id": persona_id},

@@ -11,7 +11,7 @@ const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm dis
 const kb = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
 export default forwardRef<PestanaHandle, PropsPestana>(function PestanaFirma(
-  { registroId, soloLectura, faltantes, onGuardado }, ref,
+  { registroId, soloLectura, faltantes, onGuardado, onSucio }, ref,
 ) {
   const router = useRouter();
   const [datos, setDatos] = useState({ nombres_apellidos: "", tipo_documento: "", numero_documento: "" });
@@ -136,6 +136,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaFirma(
     return ok;
   }
 
+  // Avisa al formulario si hay cambios sin guardar (habilita o bloquea «Siguiente»)
+  useEffect(() => { onSucio?.(sucio); }, [sucio]); // eslint-disable-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => ({ guardar, sucio: () => sucio }));
 
   if (cargando) return <p className="text-sm text-slate-500">Cargando...</p>;
@@ -215,7 +217,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaFirma(
             ) : (
               <div className="mt-3">
                 <canvas ref={lienzo} width={600} height={200}
-                  className="w-full max-w-xl touch-none rounded border border-slate-300 bg-white"
+                  className="canvas-firma w-full max-w-xl touch-none rounded border border-slate-300 bg-white"
                   onPointerDown={iniciar} onPointerMove={trazar} onPointerUp={terminar} onPointerLeave={terminar} />
                 <div className="mt-2 flex gap-2 text-sm">
                   <button type="button" onClick={limpiarLienzo} className="rounded border border-slate-300 px-3 py-1">Limpiar</button>

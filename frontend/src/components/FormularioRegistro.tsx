@@ -51,6 +51,9 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
   const [errorEnvio, setErrorEnvio] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [confirmarAtras, setConfirmarAtras] = useState(false);
+  // «Siguiente» exige haber guardado: la pestaña se marca como guardada al pulsar Guardar y se desmarca al editar
+  const [guardadas, setGuardadas] = useState<Record<number, boolean>>({});
+  const [sucias, setSucias] = useState<Record<number, boolean>>({});
   const [decision, setDecision] = useState<Pick<RegistroDetalle, "decision_comentario" | "decision_fecha" | "decision_por" | "puede_decidir">>(
     { decision_comentario: null, decision_fecha: null, decision_por: null, puede_decidir: false });
   const [comentarioAdmin, setComentarioAdmin] = useState("");
@@ -72,6 +75,7 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
     // Tras crear el registro con «Siguiente» se vuelve a esta página indicando la pestaña a abrir
     const p = Number(new URLSearchParams(window.location.search).get("pestana"));
     if (p >= 1 && p <= 4) setPestana(p);
+    if (new URLSearchParams(window.location.search).get("creado") === "1") setMensaje("Registro guardado correctamente. Ya puede pasar a la siguiente pestaña.");
     if (!getToken()) { router.replace("/login"); return; }
     (async () => {
       try {
@@ -122,12 +126,13 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
       if (registroId) {
         await actualizarRegistro(registroId, form);
         limpiar1();
+        setGuardadas((g) => ({ ...g, 0: true }));
         setFaltantes((f) => ({ ...f, 0: {} }));
         setMensaje("Cambios guardados correctamente.");
         ok = true;
       } else {
         const nuevo = await crearRegistro(form);
-        router.replace(`/registros/${nuevo.id}/editar${avanzar ? "?pestana=1" : ""}`);
+        router.replace(`/registros/${nuevo.id}/editar${avanzar ? "?pestana=1" : "?creado=1"}`);
       }
     } catch (e) {
       manejarError(e);
@@ -146,12 +151,14 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
   const hayCambios = (i: number) => (i === 0 ? sucio1 : !!refs[i - 1].current?.sucio());
   const guardarActual = (): Promise<boolean> => (pestana === 0 ? guardarPestana1() : refs[pestana - 1].current!.guardar());
 
-  async function siguiente() {
+  // Siguiente solo se habilita con la pestaña guardada y sin cambios pendientes (en solo lectura no hay nada que guardar).
+  // En la pestaña 1 basta con que el registro exista (solo se crea al guardar).
+  const puedeSiguiente = bloqueado
+    || (pestana === 0 ? !!registroId && !sucio1 : !!guardadas[pestana] && !sucias[pestana]);
+
+  function siguiente() {
+    if (!puedeSiguiente) return;
     setConfirmarAtras(false);
-    if (!bloqueado) {
-      if (!registroId) { await guardarPestana1(true); return; } // crea el registro y abre la pestaña 2
-      if (hayCambios(pestana) && !(await guardarActual())) return;
-    }
     setPestana((p) => Math.min(4, p + 1));
   }
 
@@ -357,19 +364,23 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
         <>
           <div className={pestana === 1 ? "" : "hidden"}>
             <PestanaIdoneidad ref={refs[0]} registroId={registroId} soloLectura={bloqueado}
-              faltantes={faltantes[1]} onGuardado={() => limpiarFaltantes(1)} />
+              faltantes={faltantes[1]} onGuardado={() => { limpiarFaltantes(1); setGuardadas((g) => ({ ...g, 1: true })); }}
+              onSucio={(v) => setSucias((x) => (x[1] === v ? x : { ...x, 1: v }))} />
           </div>
           <div className={pestana === 2 ? "" : "hidden"}>
             <PestanaHumana ref={refs[1]} registroId={registroId} soloLectura={bloqueado}
-              faltantes={faltantes[2]} onGuardado={() => limpiarFaltantes(2)} />
+              faltantes={faltantes[2]} onGuardado={() => { limpiarFaltantes(2); setGuardadas((g) => ({ ...g, 2: true })); }}
+              onSucio={(v) => setSucias((x) => (x[2] === v ? x : { ...x, 2: v }))} />
           </div>
           <div className={pestana === 3 ? "" : "hidden"}>
             <PestanaOperativa ref={refs[2]} registroId={registroId} soloLectura={bloqueado}
-              faltantes={faltantes[3]} onGuardado={() => limpiarFaltantes(3)} />
+              faltantes={faltantes[3]} onGuardado={() => { limpiarFaltantes(3); setGuardadas((g) => ({ ...g, 3: true })); }}
+              onSucio={(v) => setSucias((x) => (x[3] === v ? x : { ...x, 3: v }))} />
           </div>
           <div className={pestana === 4 ? "" : "hidden"}>
             <PestanaFirma ref={refs[3]} registroId={registroId} soloLectura={bloqueado}
-              faltantes={faltantes[4]} onGuardado={() => limpiarFaltantes(4)} />
+              faltantes={faltantes[4]} onGuardado={() => { limpiarFaltantes(4); setGuardadas((g) => ({ ...g, 4: true })); }}
+              onSucio={(v) => setSucias((x) => (x[4] === v ? x : { ...x, 4: v }))} />
           </div>
         </>
       )}
@@ -412,8 +423,12 @@ export default function FormularioRegistro({ registroId, soloLectura = false }: 
             <button type="button" onClick={atras} className="rounded border border-slate-300 px-4 py-2 text-sm">Atrás</button>
           )}
           {pestana < 4 && (
-            <button type="button" onClick={siguiente} disabled={guardando}
-              className="rounded border border-blue-700 px-4 py-2 text-sm text-blue-700 disabled:opacity-60">Siguiente</button>
+            <button type="button" onClick={siguiente} disabled={guardando || !puedeSiguiente}
+              title={puedeSiguiente ? "" : "Guarde la información de esta pestaña para continuar"}
+              className="rounded border border-blue-700 px-4 py-2 text-sm text-blue-700 disabled:cursor-not-allowed disabled:opacity-50">Siguiente</button>
+          )}
+          {pestana < 4 && !puedeSiguiente && (
+            <span className="self-center text-xs text-slate-500">Pulse «Guardar» para habilitar «Siguiente».</span>
           )}
           {pestana === 4 && !bloqueado && registroId && (
             <button type="button" onClick={enviarRevision} disabled={enviando}

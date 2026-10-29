@@ -4,6 +4,7 @@ from pydantic import BaseModel, EmailStr
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    acepta_datos: bool = False  # Req 18: aceptación de la política de tratamiento de datos personales
 
 
 class UsuarioOut(BaseModel):
@@ -47,3 +48,17 @@ class VerificarRequest(BaseModel):
 
 class ReenviarRequest(BaseModel):
     verificacion_id: int
+
+
+class RecuperarRequest(BaseModel):
+    email: EmailStr
+
+
+class RecuperarConfirmar(BaseModel):
+    email: EmailStr
+    codigo: str
+    password_nueva: str
+
+
+class MensajeOut(BaseModel):
+    mensaje: str

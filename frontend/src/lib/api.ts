@@ -111,9 +111,9 @@ async function postAuth<T>(ruta: string, cuerpo: unknown): Promise<T> {
  * Correo y contraseña. Con la verificación por correo activa devuelve los datos del paso 2 (el servidor envía el
  * código); con la verificación desactivada guarda el token y devuelve null (ya se puede entrar).
  */
-export async function login(email: string, password: string): Promise<VerificacionPendiente | null> {
+export async function login(email: string, password: string, aceptaDatos: boolean): Promise<VerificacionPendiente | null> {
   const r = await postAuth<VerificacionPendiente & { requiere_verificacion: boolean; access_token?: string }>(
-    "/auth/login", { email, password },
+    "/auth/login", { email, password, acepta_datos: aceptaDatos },
   );
   if (!r.requiere_verificacion) {
     setToken(r.access_token as string);
@@ -121,6 +121,11 @@ export async function login(email: string, password: string): Promise<Verificaci
   }
   return r;
 }
+
+/** «¿Olvidó su contraseña?»: pide el código al correo (la respuesta es la misma exista o no el correo). */
+export const solicitarRecuperacion = (email: string) => postAuth<{ mensaje: string }>("/auth/recuperar", { email });
+export const confirmarRecuperacion = (email: string, codigo: string, passwordNueva: string) =>
+  postAuth<{ mensaje: string }>("/auth/recuperar/confirmar", { email, codigo, password_nueva: passwordNueva });
 
 /** Paso 2: código recibido por correo. Si es correcto guarda el token de sesión. */
 export async function verificarCodigo(verificacionId: number, codigo: string): Promise<void> {
@@ -196,10 +201,14 @@ export interface PersonaIdoneidad {
   tipo_documento: TipoDocumento;
   numero_documento: string;
   cargo: string | null;
+  nivel_educativo: string | null;
+  descripcion_nivel_educativo: string | null;
   correo: string | null;
   telefono: string | null;
   soportes: SoporteInfo[];
 }
+
+export const NIVELES_EDUCATIVOS = ["Bachiller", "Técnico", "Tecnólogo", "Profesional", "Especialización", "Maestría", "Doctorado"];
 
 /** Fila enviada al guardar la Pestaña 2. 'clave' enlaza la fila con sus archivos nuevos. */
 export interface PersonaEnvio {
@@ -209,6 +218,8 @@ export interface PersonaEnvio {
   tipo_documento: string;
   numero_documento: string;
   cargo: string;
+  nivel_educativo: string;
+  descripcion_nivel_educativo: string;
   correo: string;
   telefono: string;
   soportes_conservar: number[];
@@ -324,13 +335,13 @@ export async function descargarSoporteHumana(registroId: number, soporte: Soport
 }
 
 // ---------- Requerimiento 5: Pestaña 4 Infraestructura Operativa ----------
-export interface ItemTecnologia { nombre: string; descripcion: string | null }
+export interface ItemTecnologia { nombre: string; descripcion: string | null; serie?: string | null; ubicacion?: string | null }
 
 export interface OperativaDatos {
   linea_1: string | null;
   linea_2: string | null;
-  linea_3: string | null;
-  fax: string | null;
+  whatsapp: string | null;
+  enlace_web: string | null;
   correo: string | null;
   direccion_atencion: string | null;
   software: ItemTecnologia[];
@@ -341,12 +352,12 @@ export interface OperativaDatos {
 export interface OperativaEnvio {
   linea_1: string;
   linea_2: string;
-  linea_3: string;
-  fax: string;
+  whatsapp: string;
+  enlace_web: string;
   correo: string;
   direccion_atencion: string;
   software: { nombre: string; descripcion: string }[];
-  equipos: { nombre: string; descripcion: string }[];
+  equipos: { nombre: string; descripcion: string; serie: string; ubicacion: string }[];
   soportes_conservar: number[];
 }
 
@@ -673,3 +684,23 @@ export async function descargarDocumento(documentoId: number, version: VersionDo
   a.href = url; a.download = version.nombre_original; a.click();
   URL.revokeObjectURL(url);
 }
+
+// ---------- Req 14C: Mi panel (cliente) ----------
+export interface EmpresaPanel {
+  id: number; nombre: string; nit: string; proceso_id: number | null; estado: EstadoProceso | null; arl_destino: string | null;
+  fecha_vencimiento: string | null; dias_restantes: number | null; empleado: string | null; alerta: "por_vencer" | "caducado" | null;
+}
+export interface PanelCliente {
+  por_vencer_dias: number;
+  resumen: { total_empresas: number; en_curso: number; vigente: number; caducado: number; sin_proceso: number; por_vencer: number };
+  empresas: EmpresaPanel[];
+  registros: Record<string, number>;
+  total_registros: number;
+}
+export const obtenerMiPanel = () => request<PanelCliente>("/mi-panel");
+
+// Req 17: listas del campo «Nombre» de la pestaña 4 (además de «Otro» con texto libre)
+export const OPCION_OTRO = "Otro";
+export const LISTA_SOFTWARE = ["Microsoft Excel", "Microsoft Word", "Microsoft 365", "Google Workspace", "Power BI", "Zoom", "Microsoft Teams",
+  "WhatsApp Business", "CRM propio", "ERP / software contable", "Base de datos SQL", "Base de datos en Excel"];
+export const LISTA_EQUIPOS = ["Dell", "HP", "Lenovo", "Acer", "Asus", "Apple", "Samsung", "Huawei", "Toshiba"];

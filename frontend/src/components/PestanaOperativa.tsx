@@ -3,23 +3,24 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import { useRouter } from "next/navigation";
 import ListaSoportes, { filtrarPdf } from "@/components/ListaSoportes";
 import {
-  ApiError, clearToken, descargarSoporteOperativa, guardarOperativa, obtenerOperativa,
+  ApiError, LISTA_EQUIPOS, LISTA_SOFTWARE, OPCION_OTRO, clearToken, descargarSoporteOperativa, guardarOperativa, obtenerOperativa,
   type OperativaDatos, type SoporteInfo,
 } from "@/lib/api";
 import { useSucio, type PestanaHandle, type PropsPestana } from "@/lib/pestanas";
 
-interface Item { clave: string; nombre: string; descripcion: string }
+// sel: opción elegida en la lista ('' = ninguna, «Otro» = texto libre en `otro`)
+interface Item { clave: string; sel: string; otro: string; descripcion: string; serie: string; ubicacion: string }
 type Lista = "software" | "equipos";
-type CampoContacto = "linea_1" | "linea_2" | "linea_3" | "fax" | "correo" | "direccion_atencion";
+type CampoContacto = "linea_1" | "linea_2" | "whatsapp" | "enlace_web" | "correo" | "direccion_atencion";
 
 const CONTACTO_VACIO: Record<CampoContacto, string> = {
-  linea_1: "", linea_2: "", linea_3: "", fax: "", correo: "", direccion_atencion: "",
+  linea_1: "", linea_2: "", whatsapp: "", enlace_web: "", correo: "", direccion_atencion: "",
 };
 
 const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-600";
 
 export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa(
-  { registroId, soloLectura, faltantes, onGuardado }, ref,
+  { registroId, soloLectura, faltantes, onGuardado, onSucio }, ref,
 ) {
   const router = useRouter();
   const contador = useRef(0);
@@ -44,13 +45,18 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
 
   function aEstado(d: OperativaDatos) {
     setContacto({
-      linea_1: d.linea_1 ?? "", linea_2: d.linea_2 ?? "", linea_3: d.linea_3 ?? "", fax: d.fax ?? "",
+      linea_1: d.linea_1 ?? "", linea_2: d.linea_2 ?? "", whatsapp: d.whatsapp ?? "", enlace_web: d.enlace_web ?? "",
       correo: d.correo ?? "", direccion_atencion: d.direccion_atencion ?? "",
     });
-    const aItems = (l: OperativaDatos["software"]) =>
-      l.map((x) => ({ clave: nuevaClave(), nombre: x.nombre, descripcion: x.descripcion ?? "" }));
-    setSoftware(aItems(d.software));
-    setEquipos(aItems(d.equipos));
+    // Un nombre que no está en la lista (registros anteriores) se muestra como «Otro» con su texto
+    const aItems = (l: OperativaDatos["software"], opciones: string[]): Item[] =>
+      l.map((x) => {
+        const enLista = opciones.includes(x.nombre);
+        return { clave: nuevaClave(), sel: enLista ? x.nombre : OPCION_OTRO, otro: enLista ? "" : x.nombre, descripcion: x.descripcion ?? "",
+          serie: x.serie ?? "", ubicacion: x.ubicacion ?? "" };
+      });
+    setSoftware(aItems(d.software, LISTA_SOFTWARE));
+    setEquipos(aItems(d.equipos, LISTA_EQUIPOS));
     setSoportes(d.soportes);
     setNuevos([]);
   }
@@ -73,14 +79,14 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
     setMensaje("");
   }
 
-  function cambiarItem(l: Lista, clave: string, campo: "nombre" | "descripcion", valor: string, indice: number) {
+  function cambiarItem(l: Lista, clave: string, campo: "sel" | "otro" | "descripcion" | "serie" | "ubicacion", valor: string, indice: number) {
     setLista(l)((its) => its.map((x) => (x.clave === clave ? { ...x, [campo]: valor } : x)));
-    setErrores((e) => ({ ...e, [`${l}.${indice}.${campo}`]: "" }));
+    setErrores((e) => ({ ...e, [`${l}.${indice}.nombre`]: "", [`${l}.${indice}.${campo}`]: "" }));
     setMensaje("");
   }
 
   function agregarItem(l: Lista) {
-    setLista(l)((its) => [...its, { clave: nuevaClave(), nombre: "", descripcion: "" }]);
+    setLista(l)((its) => [...its, { clave: nuevaClave(), sel: "", otro: "", descripcion: "", serie: "", ubicacion: "" }]);
     setMensaje(""); setErrorGeneral("");
   }
 
@@ -104,7 +110,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
     setErrores({}); setErrorGeneral(""); setMensaje(""); setGuardando(true);
     let ok = false;
     try {
-      const aEnvio = (l: Item[]) => l.map((x) => ({ nombre: x.nombre, descripcion: x.descripcion }));
+      const aEnvio = (l: Item[]) => l.map((x) => ({ nombre: x.sel === OPCION_OTRO ? x.otro : x.sel, descripcion: x.descripcion, serie: x.serie, ubicacion: x.ubicacion }));
       aEstado(await guardarOperativa(registroId, {
         ...contacto, software: aEnvio(software), equipos: aEnvio(equipos), soportes_conservar: soportes.map((s) => s.id),
       }, nuevos));
@@ -120,6 +126,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
     return ok;
   }
 
+  // Avisa al formulario si hay cambios sin guardar (habilita o bloquea «Siguiente»)
+  useEffect(() => { onSucio?.(sucio); }, [sucio]); // eslint-disable-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => ({ guardar, sucio: () => sucio }));
 
   if (cargando) return <p className="text-sm text-slate-500">Cargando...</p>;
@@ -139,7 +147,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
     );
   }
 
-  function renderLista(l: Lista, titulo: string, ayuda: string, textoAgregar: string, items: Item[]) {
+  function renderLista(l: Lista, titulo: string, ayuda: string, textoAgregar: string, items: Item[], opciones: string[]) {
     return (
       <section className="rounded-lg bg-white p-6 shadow">
         <h2 className="text-lg font-semibold">{titulo}</h2>
@@ -152,15 +160,40 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
         <div className="space-y-3">
           {items.map((it, i) => (
             <div key={it.clave} className="grid gap-3 rounded border border-slate-200 p-3 sm:grid-cols-6">
-              <label className="block text-sm sm:col-span-2">Nombre <span className="text-red-600">*</span>
-                <input value={it.nombre} disabled={soloLectura} className={INPUT}
-                  onChange={(e) => cambiarItem(l, it.clave, "nombre", e.target.value, i)} />
+              <div className="block text-sm sm:col-span-2">
+                <label>Nombre <span className="text-red-600">*</span>
+                  <select value={it.sel} disabled={soloLectura} className={INPUT}
+                    onChange={(e) => cambiarItem(l, it.clave, "sel", e.target.value, i)}>
+                    <option value="">Seleccione...</option>
+                    {opciones.map((o) => <option key={o} value={o}>{o}</option>)}
+                    <option value={OPCION_OTRO}>{OPCION_OTRO}</option>
+                  </select>
+                </label>
+                {it.sel === OPCION_OTRO && (
+                  <input value={it.otro} disabled={soloLectura} maxLength={150} placeholder="Escriba el nombre" aria-label="Otro: nombre"
+                    className={INPUT} onChange={(e) => cambiarItem(l, it.clave, "otro", e.target.value, i)} />
+                )}
                 {todos[`${l}.${i}.nombre`] && <span className="text-xs text-red-600">{todos[`${l}.${i}.nombre`]}</span>}
-              </label>
+              </div>
               <label className="block text-sm sm:col-span-3">Descripción
                 <input value={it.descripcion} disabled={soloLectura} className={INPUT}
                   onChange={(e) => cambiarItem(l, it.clave, "descripcion", e.target.value, i)} />
               </label>
+              {l === "equipos" && (
+                <>
+                  <label className="block text-sm sm:col-span-2">Serie
+                    <input value={it.serie} disabled={soloLectura} maxLength={100} className={INPUT}
+                      onChange={(e) => cambiarItem(l, it.clave, "serie", e.target.value, i)} />
+                    {todos[`${l}.${i}.serie`] && <span className="text-xs text-red-600">{todos[`${l}.${i}.serie`]}</span>}
+                  </label>
+                  <label className="block text-sm sm:col-span-3">Ubicación
+                    <input value={it.ubicacion} disabled={soloLectura} maxLength={150} className={INPUT}
+                      placeholder="Ej.: Oficina principal, Bogotá"
+                      onChange={(e) => cambiarItem(l, it.clave, "ubicacion", e.target.value, i)} />
+                    {todos[`${l}.${i}.ubicacion`] && <span className="text-xs text-red-600">{todos[`${l}.${i}.ubicacion`]}</span>}
+                  </label>
+                </>
+              )}
               {!soloLectura && (
                 <div className="flex items-end sm:col-span-1">
                   <button type="button" onClick={() => quitarItem(l, it.clave)} className="pb-2 text-xs text-red-700 hover:underline">Quitar</button>
@@ -192,16 +225,16 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaOperativa
         />
       </section>
 
-      {renderLista("software", "Software y bases de datos", "Programas y bases de datos que utiliza para la operación.", "Agregar software o base de datos", software)}
-      {renderLista("equipos", "Equipos tecnológicos", "Equipos con los que cuenta para la operación.", "Agregar equipo", equipos)}
+      {renderLista("software", "Software y bases de datos", "Programas y bases de datos que utiliza para la operación.", "Agregar software o base de datos", software, LISTA_SOFTWARE)}
+      {renderLista("equipos", "Equipos tecnológicos", "Equipos con los que cuenta para la operación.", "Agregar equipo", equipos, LISTA_EQUIPOS)}
 
       <section className="rounded-lg bg-white p-6 shadow">
         <h2 className="text-lg font-semibold">Líneas de contacto y atención</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-6">
           {renderContacto("linea_1", "Línea telefónica 1", { obligatorio: true, ayuda: "7 a 10 dígitos, solo números." })}
           {renderContacto("linea_2", "Línea telefónica 2", { obligatorio: true, ayuda: "7 a 10 dígitos, solo números." })}
-          {renderContacto("linea_3", "Línea telefónica 3", { ayuda: "7 a 10 dígitos, solo números." })}
-          {renderContacto("fax", "Fax", { ayuda: "7 a 10 dígitos, solo números." })}
+          {renderContacto("whatsapp", "Línea de atención vía WhatsApp", { obligatorio: true, ayuda: "Celular de 10 dígitos que empiece por 3, solo números." })}
+          {renderContacto("enlace_web", "Enlace web", { obligatorio: true, tipo: "url", ayuda: "Debe empezar por http:// o https://" })}
           {renderContacto("correo", "Correo electrónico de atención", { obligatorio: true, tipo: "email", span: "sm:col-span-4" })}
           {renderContacto("direccion_atencion", "Dirección de atención", { span: "sm:col-span-6" })}
         </div>

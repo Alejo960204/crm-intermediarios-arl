@@ -391,3 +391,66 @@ Reinicie backend y frontend. Todas las pantallas (menos el login) tienen un **me
 - Todos los roles: **RUI** y **SG-SST** (Programas: Medicina Laboral, Higiene y Seguridad Industrial, Riesgo Psicosocial, Trabajo en Alturas, Trabajo Seguro, Inspecciones · Planes: PESV · Políticas · Matrices: identificación de peligros y valoración de riesgos, Matriz legal).
 
 Cada ítem de RUI/SG-SST abre un repositorio de documentos: se elige la **empresa** (cada rol ve las que ya podía ver: root todas, cliente las suyas, empleado las de sus procesos asignados) y se suben varios documentos con **título** y descripción opcional. Reglas iguales a 14A: PDF/PNG/JPG hasta 5 MB, «Reemplazar» crea una versión nueva con historial, cliente y empleado no eliminan y solo el root elimina. Los documentos de cada sección están separados entre sí y de los documentos por tipo de 14A. Endpoints: `GET|POST /empresas/{id}/secciones/{seccion}/documentos`.
+
+## Requerimiento 14C — «Mi panel» del cliente
+
+No requiere SQL nuevo. Reemplace los archivos y reinicie backend y frontend. Al iniciar sesión, el **cliente** entra a **Mi panel** (`/mi-panel`, primer ítem de su menú); root y empleado siguen entrando a Dashboard y Procesos. Muestra: alertas de vigencia (empresas por vencer en 30 días en amarillo y caducadas en rojo), tarjetas resumen (mis empresas, en curso, vigentes, caducados, sin proceso, por vencer; cada una abre la lista de Empresas filtrada), una tarjeta por empresa con el estado de su proceso más reciente (ARL destino, vencimiento, responsable y enlace al proceso) y el resumen de sus registros del Formulario Único por estado (Borrador, En revisión, Aprobado, Rechazado). Solo muestra datos propios (empresas y registros eliminados no cuentan). Endpoint: `GET /mi-panel` (solo cliente; root y empleado reciben 403).
+
+## Logotipo (Progrescol BIC S.A.S.)
+
+Sin SQL. Reemplace los archivos (incluye `frontend/public/logo.png`) y reinicie el frontend. El logotipo aparece como **marca de agua** centrada y tenue detrás del formulario de inicio de sesión, y en la **parte superior izquierda del menú lateral** (en celular, en la barra superior). Para cambiarlo, reemplace `frontend/public/logo.png`.
+
+## Requerimiento 16 — Ajustes del formulario: nivel educativo y «Guardar antes de Siguiente»
+
+Actualizar (desde `backend`):
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req16_nivel_educativo.sql
+```
+
+Reinicie backend y frontend.
+
+1. **Pestaña 2 (Competencia Profesional):** cada persona tiene, debajo de Cargo, la lista **Nivel educativo** (obligatoria: Bachiller, Técnico, Tecnólogo, Profesional, Especialización, Maestría, Doctorado) y el campo **Descripción del nivel educativo** (opcional, máximo 200 caracteres). Los registros anteriores quedan con el nivel vacío: se exige al volver a guardar la pestaña y para enviar a revisión (aparece en la lista de campos faltantes).
+2. **Guardar antes de Siguiente:** en las pestañas con botón Siguiente, este se habilita solo cuando la pestaña se guardó con el botón Guardar y no tiene cambios pendientes; si se edita algo se vuelve a deshabilitar. Siguiente ya no guarda automáticamente. En la pestaña 1 basta con que el registro exista y no tenga cambios sin guardar (el registro nace al guardar); al crearlo se muestra un mensaje de confirmación. En solo lectura (registro enviado) se navega libremente. «Atrás» queda igual.
+
+## Requerimiento 17 — Ajustes de las pestañas 3 (Talento Humano) y 4 (Infraestructura Operativa)
+
+Actualizar (desde `backend`):
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req17_ajustes_pestanas.sql
+```
+
+Reinicie backend y frontend.
+
+- **Certificados laborales (pestaña 3):** debe haber al menos una experiencia laboral y cada experiencia debe tener al menos un certificado (PDF, máx. 5 MB). Sin eso no se puede guardar la pestaña y, por la regla de «Guardar antes de Siguiente», tampoco avanzar. También se exige al enviar a revisión (los registros anteriores sin certificados aparecen como campos faltantes).
+- **Software y bases de datos / Equipos tecnológicos (pestaña 4):** el campo **Nombre** es una lista desplegable con la opción «Otro» (texto libre). Software: Microsoft Excel, Microsoft Word, Microsoft 365, Google Workspace, Power BI, Zoom, Microsoft Teams, WhatsApp Business, CRM propio, ERP / software contable, Base de datos SQL, Base de datos en Excel. Equipos (marcas): Dell, HP, Lenovo, Acer, Asus, Apple, Samsung, Huawei, Toshiba. Los nombres de registros anteriores que no estén en la lista se muestran como «Otro» con su texto. Para cambiar las listas edite `LISTA_SOFTWARE` y `LISTA_EQUIPOS` al final de `frontend/src/lib/api.ts`.
+- **Líneas de contacto:** «Línea telefónica 3» pasó a **Línea de atención vía WhatsApp** (obligatoria; celular de 10 dígitos que empiece por 3) y «Fax» pasó a **Enlace web** (obligatorio; URL que empiece por http:// o https://). Se exigen al guardar la pestaña. Los valores anteriores se conservaron; si no cumplen el nuevo formato se pedirá corregirlos al guardar.
+
+## Req 18 — Serie/Ubicación en equipos, consentimiento de datos y recuperación de contraseña
+
+**Base de datos (ejecutar desde la carpeta `backend`):**
+
+```
+psql -U <usuario> -d <base> -f sql\req18_login_equipos.sql
+```
+
+Luego reinicie el backend.
+
+- **Equipos tecnológicos:** nuevas casillas *Serie* (máx. 100) y *Ubicación* (máx. 150), opcionales. Solo aplican a equipos, no a software.
+- **Consentimiento (Ley 1581 de 2012):** el login muestra el texto de la política y una casilla obligatoria; el botón «Continuar» queda deshabilitado hasta marcarla. Cada inicio de sesión exitoso guarda la aceptación en la tabla `consentimientos_datos` (usuario, versión, IP, fecha).
+  - El texto es un **borrador**: complete los marcadores `[NIT]`, `[CORREO]` y `[DIRECCIÓN]` (la razón social ya es PROGRESCOL BIC S.A.S.) en `frontend/src/components/TextoConsentimiento.tsx` (constante `CONTACTO_DATOS`) y haga revisarlo por su asesor legal.
+  - Si cambia el texto, cambie también `VERSION_POLITICA` en `backend/src/app/services/auth_service.py`.
+- **¿Olvidó su contraseña?:** enlace en el login → pantalla `/recuperar`: correo → código de 6 dígitos (vigencia, intentos y reenvío iguales al Req 8: `CODIGO_MINUTOS`, `CODIGO_MAX_INTENTOS`, `CODIGO_REENVIO_SEGUNDOS`) → nueva contraseña (mín. 8). Al terminar vuelve al login con mensaje de éxito. La respuesta es la misma exista o no el correo. Máximo 5 solicitudes por hora por usuario.
+  - Con SMTP configurado el código llega por correo; sin SMTP se imprime en la consola del backend (modo de prueba).
+- **API:** `POST /auth/login` ahora exige `"acepta_datos": true`; si algún script o cliente externo lo usa, debe enviarlo. Nuevos: `POST /auth/recuperar` y `POST /auth/recuperar/confirmar`.
+
+## Req 19 — Rediseño visual (colores del logotipo) y modo oscuro
+
+No requiere cambios en la base de datos ni en el backend: solo reemplace la carpeta `frontend` y reinicie `npm run dev` (o vuelva a compilar).
+
+- **Paleta:** azul marino `#14405F`, azul cielo `#10A0D0`, verde `#80B030` (del logotipo). Se define una sola vez en `frontend/src/app/globals.css` (variables claras y oscuras) y `frontend/tailwind.config.ts`; toda la aplicación la usa, así que para ajustar un color basta cambiarlo ahí.
+- **Menú lateral:** degradado azul marino, ítem activo resaltado, títulos de grupo en verde, fijo al hacer scroll.
+- **Login y recuperar contraseña:** fondo con formas suaves en azul y verde, tarjeta translúcida con animación de entrada.
+- **Dinámico (sutil):** transiciones al pasar el mouse, tarjetas del Dashboard/Mi panel que se elevan, filas de tablas resaltadas, aparición suave de cada pantalla, botón principal con degradado. Se desactiva solo si el sistema pide «reducir movimiento».
+- **Modo oscuro:** interruptor (luna/sol) en el menú lateral y arriba a la derecha en el login. Recuerda la elección en el navegador; la primera vez usa la del sistema. La firma dibujada mantiene fondo blanco.

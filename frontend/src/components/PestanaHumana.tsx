@@ -28,7 +28,7 @@ const RESP_VACIO: ResponsableEnvio = {
 const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-600";
 
 export default forwardRef<PestanaHandle, PropsPestana>(function PestanaHumana(
-  { registroId, soloLectura, faltantes, onGuardado }, ref,
+  { registroId, soloLectura, faltantes, onGuardado, onSucio }, ref,
 ) {
   const router = useRouter();
   const contador = useRef(0);
@@ -137,6 +137,8 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaHumana(
     return ok;
   }
 
+  // Avisa al formulario si hay cambios sin guardar (habilita o bloquea «Siguiente»)
+  useEffect(() => { onSucio?.(sucio); }, [sucio]); // eslint-disable-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => ({ guardar, sucio: () => sucio }));
 
   if (cargando) return <p className="text-sm text-slate-500">Cargando...</p>;
@@ -248,7 +250,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaHumana(
               </div>
 
               <ListaSoportes
-                titulo="Certificaciones laborales (PDF)"
+                titulo="Certificaciones laborales (PDF, obligatorio: al menos una)"
                 guardados={f.soportes} nuevos={f.nuevos} soloLectura={soloLectura} error={errE(i, "soportes")}
                 onDescargar={bajar}
                 onQuitarGuardado={(id) => setFilas((fs) => fs.map((x) => x.clave === f.clave ? { ...x, soportes: x.soportes.filter((s) => s.id !== id) } : x))}
@@ -259,6 +261,7 @@ export default forwardRef<PestanaHandle, PropsPestana>(function PestanaHumana(
           ))}
         </div>
 
+        {todos.experiencias && <p className="mt-4 text-sm text-red-600">{todos.experiencias}</p>}
         {errorGeneral && <p className="mt-4 text-sm text-red-600">{errorGeneral}</p>}
         {mensaje && <p className="mt-4 text-sm text-green-700">{mensaje}</p>}
 

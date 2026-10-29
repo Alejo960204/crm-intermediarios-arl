@@ -15,6 +15,8 @@ export interface PropsPestana {
   faltantes?: Record<string, string>;
   /** Se llama tras guardar correctamente la pestaña. */
   onGuardado?: () => void;
+  /** Se llama cada vez que cambia si la pestaña tiene cambios sin guardar. */
+  onSucio?: (sucio: boolean) => void;
 }
 
 /**
