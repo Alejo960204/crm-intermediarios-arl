@@ -4,10 +4,11 @@ Uso (desde backend/src, con DATABASE_URL y JWT_SECRET definidos en el entorno o 
     python ../scripts/crear_usuarios_demo.py [--clave ClaveDemo2026]
 
 Crea (si no existen):
-    admin@demo.com      root Admin
-    cliente@demo.com    cliente   (con 3 registros de ejemplo)
-    empleado@demo.com   empleado
+    admin@demo.com      administrador
+    cliente@demo.com    intermediario (con 3 registros de ejemplo)
 Todos con la misma clave (por defecto «Demo2026!»). Solo para demos: no usar con datos reales.
+Los usuarios «empresa» y «empleado» ya no se crean aquí: los crea el intermediario desde la pantalla Empresas
+(cada empresa trae su usuario) y la empresa crea sus empleados.
 """
 import argparse
 import sys
@@ -15,14 +16,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from app.constantes import ROL_CLIENTE, ROL_EMPLEADO, ROL_ROOT  # noqa: E402
+from app.constantes import ROL_CLIENTE, ROL_ROOT  # noqa: E402
 from app.database import get_cursor  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
 USUARIOS = [
     ("Administrador Demo", "admin@demo.com", ROL_ROOT),
     ("Cliente Demo", "cliente@demo.com", ROL_CLIENTE),
-    ("Empleado Demo", "empleado@demo.com", ROL_EMPLEADO),
 ]
 
 

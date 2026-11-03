@@ -1,7 +1,7 @@
 -- Requerimiento 11: Procesos de afiliación (por empresa, con historial) + rol Empleado y asignación. Idempotente.
 -- Nuevo rol 'empleado' (reemplaza la restricción de roles; el nombre es el que PostgreSQL asignó por defecto)
 ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
-ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('root Admin','cliente','empleado'));
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('root Admin','cliente','empleado','administrador','intermediario'));
 
 -- Estados guardados: Pendiente, En proceso, Vigente. «Caducado» se calcula: Vigente con vencimiento cumplido.
 CREATE TABLE IF NOT EXISTS procesos_afiliacion (

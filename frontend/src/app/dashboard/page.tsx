@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearToken, getToken, obtenerDashboard, obtenerUsuarioActual, type MetricasDashboard } from "@/lib/api";
+import DashboardEmpresa from "@/components/DashboardEmpresa";
+import DashboardIntermediario from "@/components/DashboardIntermediario";
 
 const BTN = "rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-50";
 
@@ -20,6 +22,8 @@ export default function DashboardPage() {
   const router = useRouter();
   const [m, setM] = useState<MetricasDashboard | null>(null);
   const [nombre, setNombre] = useState("");
+  const [interm, setInterm] = useState(false);
+  const [empresa, setEmpresa] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -27,7 +31,9 @@ export default function DashboardPage() {
     (async () => {
       try {
         const u = await obtenerUsuarioActual();
-        if (u.rol !== "root Admin") { router.replace("/"); return; }
+        if (u.rol === "empresa") { setEmpresa(true); return; }
+        if (u.rol === "empleado") { router.replace(`/empresas/${u.empresa_id}`); return; }
+        if (u.rol === "intermediario") { setInterm(true); return; }
         setNombre(u.nombre);
         setM(await obtenerDashboard());
       } catch (e) {
@@ -36,12 +42,15 @@ export default function DashboardPage() {
     })();
   }, [router]);
 
+  if (interm) return <DashboardIntermediario />;
+  if (empresa) return <DashboardEmpresa />;
+
   return (
     <main className="mx-auto max-w-5xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-xs text-slate-500">{nombre} · root Admin</p>
+          <p className="text-xs text-slate-500">{nombre} · Administrador</p>
         </div>
         <div className="flex gap-2">
         </div>
@@ -51,13 +60,15 @@ export default function DashboardPage() {
       {m && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Tarjeta titulo="Total de empresas" valor={m.total} color="border-slate-500" href="/empresas" />
+            <Tarjeta titulo="Total de empresas" valor={m.total} color="border-slate-500" href="/empresas" nota="Solo empresas activas" />
             <Tarjeta titulo="Con proceso en curso" valor={m.en_curso} color="border-blue-500" href="/empresas?estado=en_curso"
               nota="Pendiente o En proceso" />
             <Tarjeta titulo="Con proceso vigente" valor={m.vigente} color="border-green-500" href="/empresas?estado=vigente" />
             <Tarjeta titulo="Con proceso caducado" valor={m.caducado} color="border-red-500" href="/empresas?estado=caducado" />
           </div>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Tarjeta titulo="Intermediarios activos" valor={m.intermediarios} color="border-blue-700" href="/usuarios" nota="Usuarios con rol intermediario" />
+            <Tarjeta titulo="Solicitudes de ampliación" valor={m.solicitudes_ampliacion} color="border-red-500" href="/usuarios" nota="Intermediarios que piden más cupo" />
             <Tarjeta titulo="Sin ningún proceso" valor={m.sin_proceso} color="border-amber-400" href="/empresas?estado=sin_proceso" />
             <Tarjeta titulo={`Vigencia por vencer (próximos ${m.por_vencer_dias} días)`} valor={m.por_vencer} color="border-orange-400"
               href="/empresas?estado=por_vencer" nota="Incluidas en «vigente»" />

@@ -250,7 +250,7 @@ ALTER TABLE registros_intermediarios ADD COLUMN IF NOT EXISTS decision_usuario_i
 -- Requerimiento 11: Procesos de afiliación (por empresa, con historial) + rol Empleado y asignación. Idempotente.
 -- Nuevo rol 'empleado' (reemplaza la restricción de roles; el nombre es el que PostgreSQL asignó por defecto)
 ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
-ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('root Admin','cliente','empleado'));
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('root Admin','cliente','empleado','administrador','intermediario'));
 
 -- Estados guardados: Pendiente, En proceso, Vigente. «Caducado» se calcula: Vigente con vencimiento cumplido.
 CREATE TABLE IF NOT EXISTS procesos_afiliacion (
@@ -413,3 +413,104 @@ CREATE INDEX IF NOT EXISTS idx_consentimientos_usuario ON consentimientos_datos(
 
 -- Los códigos por correo sirven para dos propósitos: 'login' (verificación, Req 8) y 'recuperacion' (olvidó su contraseña)
 ALTER TABLE codigos_acceso ADD COLUMN IF NOT EXISTS proposito VARCHAR(20) NOT NULL DEFAULT 'login';
+-- Requerimiento 21A: roles Administrador / Intermediario y límite de empresas por intermediario. Idempotente.
+-- Ejecutar desde la carpeta backend:  psql -U postgres -d <base> -f sql\req21a_roles_limite.sql
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+UPDATE usuarios SET rol = 'administrador' WHERE rol = 'root Admin';
+UPDATE usuarios SET rol = 'intermediario' WHERE rol = 'cliente';
+ALTER TABLE usuarios ALTER COLUMN rol SET DEFAULT 'intermediario';
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('administrador','intermediario','empleado'));
+-- Máximo de empresas activas que el administrador permite crear al intermediario (NULL = sin límite)
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS max_empresas INTEGER;
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS ck_usuarios_max_empresas;
+ALTER TABLE usuarios ADD CONSTRAINT ck_usuarios_max_empresas CHECK (max_empresas IS NULL OR max_empresas >= 0);
+-- Requerimiento 21A (ampliación): paquetes de empresas por intermediario, empresas inactivas y solicitudes de ampliación. Idempotente.
+-- Ejecutar desde la carpeta backend:  psql -U postgres -d <base> -f sql\req21a2_paquetes.sql
+-- (requiere haber ejecutado antes sql\req21a_roles_limite.sql)
+
+-- Cada asignación de paquete es una fila: el intermediario trabaja con el más reciente; el resto queda como historial.
+CREATE TABLE IF NOT EXISTS paquetes_intermediario (
+    id                SERIAL PRIMARY KEY,
+    usuario_id        INTEGER NOT NULL REFERENCES usuarios(id),
+    nombre            VARCHAR(100) NOT NULL,
+    cantidad_empresas INTEGER NOT NULL CHECK (cantidad_empresas >= 1),
+    periodicidad      VARCHAR(12) CHECK (periodicidad IN ('mensual','trimestral','semestral','anual')),  -- NULL = sin vencimiento (paquetes migrados)
+    fecha_inicio      DATE NOT NULL,
+    fecha_vencimiento DATE,
+    creado_por        INTEGER REFERENCES usuarios(id),
+    fecha_creacion    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_paquetes_usuario ON paquetes_intermediario(usuario_id, id DESC);
+
+-- Empresa inactiva: se conserva con todo su historial, queda solo de consulta y NO libera cupo.
+ALTER TABLE empresas ADD COLUMN IF NOT EXISTS inactiva   BOOLEAN NOT NULL DEFAULT FALSE;
+-- Paquete con el que se creó la empresa (el cupo gastado se cuenta por paquete)
+ALTER TABLE empresas ADD COLUMN IF NOT EXISTS paquete_id INTEGER REFERENCES paquetes_intermediario(id);
+CREATE INDEX IF NOT EXISTS idx_empresas_paquete ON empresas(paquete_id);
+
+CREATE TABLE IF NOT EXISTS solicitudes_ampliacion (
+    id              SERIAL PRIMARY KEY,
+    usuario_id      INTEGER NOT NULL REFERENCES usuarios(id),
+    estado          VARCHAR(10) NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','atendida')),
+    fecha_solicitud TIMESTAMPTZ NOT NULL DEFAULT now(),
+    fecha_atencion  TIMESTAMPTZ,
+    atendida_por    INTEGER REFERENCES usuarios(id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_solicitud_pendiente ON solicitudes_ampliacion(usuario_id) WHERE estado = 'pendiente';
+
+-- Migración del límite simple de la parte 21A (usuarios.max_empresas) a un paquete sin vencimiento
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'usuarios' AND column_name = 'max_empresas') THEN
+        INSERT INTO paquetes_intermediario (usuario_id, nombre, cantidad_empresas, periodicidad, fecha_inicio, fecha_vencimiento)
+            SELECT u.id, 'Paquete inicial', GREATEST(u.max_empresas, 1), NULL, CURRENT_DATE, NULL
+            FROM usuarios u
+            WHERE u.max_empresas IS NOT NULL AND NOT EXISTS (SELECT 1 FROM paquetes_intermediario p WHERE p.usuario_id = u.id);
+        UPDATE empresas e SET paquete_id = (SELECT p.id FROM paquetes_intermediario p WHERE p.usuario_id = e.usuario_id ORDER BY p.id DESC LIMIT 1)
+            WHERE e.paquete_id IS NULL AND e.eliminado = FALSE
+              AND EXISTS (SELECT 1 FROM paquetes_intermediario p WHERE p.usuario_id = e.usuario_id);
+        ALTER TABLE usuarios DROP COLUMN max_empresas;
+    END IF;
+END $$;
+-- Requerimiento 21B: rol «empresa» (login propio de cada empresa) y rol «empleado» (usuarios de una empresa) con cupo. Idempotente.
+-- Ejecutar desde la carpeta backend:  psql -U postgres -d <base> -f sql\req21b_empresa_empleados.sql
+ALTER TABLE usuarios DROP CONSTRAINT IF EXISTS usuarios_rol_check;
+ALTER TABLE usuarios ADD CONSTRAINT usuarios_rol_check CHECK (rol IN ('administrador','intermediario','empresa','empleado'));
+
+-- Empresa a la que pertenece un usuario «empresa» o «empleado»
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS empresa_id INTEGER REFERENCES empresas(id);
+CREATE INDEX IF NOT EXISTS idx_usuarios_empresa ON usuarios(empresa_id);
+-- Una empresa tiene un solo usuario «empresa»
+CREATE UNIQUE INDEX IF NOT EXISTS uq_usuarios_empresa_login ON usuarios(empresa_id) WHERE rol = 'empresa';
+
+-- Cupo de empleados por empresa (NULL = sin límite); lo fija el intermediario al crear la empresa
+ALTER TABLE empresas ADD COLUMN IF NOT EXISTS max_empleados INTEGER;
+ALTER TABLE empresas DROP CONSTRAINT IF EXISTS ck_empresas_max_empleados;
+ALTER TABLE empresas ADD CONSTRAINT ck_empresas_max_empleados CHECK (max_empleados IS NULL OR max_empleados >= 0);
+
+-- El antiguo rol «empleado» (asignado por el administrador a procesos) desaparece:
+-- se desactivan esos usuarios y se retiran las asignaciones (queda constancia en el historial del proceso).
+INSERT INTO procesos_historial (proceso_id, accion, estado, fecha_inicio, periodo, fecha_vencimiento, observacion, usuario_id)
+SELECT p.id, 'Asignación', p.estado, p.fecha_inicio, p.periodo, p.fecha_vencimiento,
+       'Asignación retirada: el rol Empleado se redefinió (ahora pertenece a una empresa)', p.creado_por
+FROM procesos_afiliacion p JOIN usuarios u ON u.id = p.empleado_id
+WHERE u.rol = 'empleado' AND u.empresa_id IS NULL;
+UPDATE procesos_afiliacion SET empleado_id = NULL
+WHERE empleado_id IN (SELECT id FROM usuarios WHERE rol = 'empleado' AND empresa_id IS NULL);
+UPDATE usuarios SET activo = FALSE WHERE rol = 'empleado' AND empresa_id IS NULL;
+-- Requerimiento 21C: historial de cambios por empresa (quién, cuándo, qué). Idempotente.
+-- Ejecutar desde la carpeta backend:  psql -U postgres -d <base> -f sql\req21c_historial.sql
+CREATE TABLE IF NOT EXISTS empresa_historial (
+    id              BIGSERIAL PRIMARY KEY,
+    empresa_id      INTEGER NOT NULL REFERENCES empresas(id),
+    usuario_id      INTEGER NOT NULL REFERENCES usuarios(id),
+    rol_usuario     VARCHAR(20) NOT NULL,          -- rol que tenía al momento del cambio
+    categoria       VARCHAR(20) NOT NULL CHECK (categoria IN ('datos','documento','diagnostico','empleado','acceso')),
+    accion          VARCHAR(150) NOT NULL,
+    campo           VARCHAR(150),
+    valor_anterior  TEXT,
+    valor_nuevo     TEXT,
+    detalle         TEXT,
+    fecha           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_empresa_historial_empresa ON empresa_historial(empresa_id, fecha DESC, id DESC);

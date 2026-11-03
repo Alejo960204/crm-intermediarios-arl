@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import TextoConsentimiento from "@/components/TextoConsentimiento";
-import { login, reenviarCodigo, verificarCodigo, type VerificacionPendiente } from "@/lib/api";
+import Turnstile, { CAPTCHA_ACTIVO } from "@/components/Turnstile";
+import { aceptarConsentimiento, login, reenviarCodigo, verificarCodigo, type ResultadoLogin, type VerificacionPendiente } from "@/lib/api";
 
 const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2";
 
@@ -12,6 +13,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [acepta, setAcepta] = useState(false);
+  const [ticket, setTicket] = useState<string | null>(null); // paso «política de datos» (todos menos administrador)
+  const [captcha, setCaptcha] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
   const [pendiente, setPendiente] = useState<VerificacionPendiente | null>(null);
   const [codigo, setCodigo] = useState("");
   const [espera, setEspera] = useState(0);
@@ -37,9 +41,27 @@ export default function LoginPage() {
     e.preventDefault();
     setError(""); setAviso(""); setCargando(true);
     try {
-      const paso2 = await login(email, password, acepta);
-      if (paso2) iniciarPaso2(paso2);
-      else router.push("/"); // verificación por correo desactivada; la portada decide según el rol
+      siguiente(await login(email, password, captcha));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCaptchaKey((k) => k + 1); // el token del captcha sirve una sola vez
+      setCargando(false);
+    }
+  }
+
+  function siguiente(r: ResultadoLogin) {
+    if (r.paso === "consentimiento") { setTicket(r.token); setAcepta(false); }
+    else if (r.paso === "codigo") { setTicket(null); iniciarPaso2(r.datos); }
+    else router.push("/"); // la portada decide según el rol
+  }
+
+  async function onConsentimiento(e: React.FormEvent) {
+    e.preventDefault();
+    if (!ticket || !acepta) return;
+    setError(""); setAviso(""); setCargando(true);
+    try {
+      siguiente(await aceptarConsentimiento(ticket));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -75,7 +97,7 @@ export default function LoginPage() {
   }
 
   function volver() {
-    setPendiente(null); setCodigo(""); setPassword(""); setError(""); setAviso("");
+    setPendiente(null); setTicket(null); setAcepta(false); setCodigo(""); setPassword(""); setError(""); setAviso("");
   }
 
   return (
@@ -87,7 +109,21 @@ export default function LoginPage() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/logo.png" alt="" aria-hidden="true" draggable={false}
         className="pointer-events-none absolute left-1/2 top-1/2 w-[min(90vw,900px)] -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.10] mix-blend-multiply dark:hidden" />
-      {!pendiente ? (
+      {ticket ? (
+        <form onSubmit={onConsentimiento} className="relative w-full max-w-lg animate-entrar space-y-4 rounded-2xl bg-white/90 p-7 shadow-xl ring-1 ring-slate-200 backdrop-blur">
+          <h1 className="text-xl font-semibold">Tratamiento de datos personales</h1>
+          <TextoConsentimiento />
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={acepta} onChange={(e) => setAcepta(e.target.checked)} className="mt-1" />
+            <span>He leído y acepto la política de tratamiento de datos personales.</span>
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button disabled={cargando || !acepta} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
+            {cargando ? "Verificando..." : "Aceptar y continuar"}
+          </button>
+          <button type="button" onClick={volver} className="w-full text-center text-sm text-slate-600 hover:underline">Volver</button>
+        </form>
+      ) : !pendiente ? (
         <form onSubmit={onCredenciales} className="relative w-full max-w-md animate-entrar space-y-4 rounded-2xl bg-white/90 p-7 shadow-xl ring-1 ring-slate-200 backdrop-blur">
           <h1 className="text-xl font-semibold">Iniciar sesión</h1>
           <label className="block text-sm">Correo
@@ -99,14 +135,10 @@ export default function LoginPage() {
           <div className="text-right text-sm">
             <Link href="/recuperar" className="text-blue-700 hover:underline">¿Olvidó su contraseña?</Link>
           </div>
-          <TextoConsentimiento />
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" checked={acepta} onChange={(e) => setAcepta(e.target.checked)} className="mt-1" />
-            <span>He leído y acepto la política de tratamiento de datos personales.</span>
-          </label>
+          <Turnstile onToken={setCaptcha} resetKey={captchaKey} />
           {error && <p className="text-sm text-red-600">{error}</p>}
           {aviso && <p className="text-sm text-green-700">{aviso}</p>}
-          <button disabled={cargando || !acepta} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
+          <button disabled={cargando || (CAPTCHA_ACTIVO && !captcha)} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
             {cargando ? "Verificando..." : "Continuar"}
           </button>
         </form>

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routes import auth, catalogos, dashboard, diagnosticos, documentos, empresas, firma, humana, idoneidad, mi_panel, operativa, procesos, registros, usuarios
+from .routes import auth, catalogos, dashboard, diagnosticos, documentos, empresas, firma, humana, idoneidad, mi_empresa, mi_panel, operativa, procesos, registros, usuarios
 
 app = FastAPI(title="CRM Intermediarios ARL")
 
@@ -29,3 +29,4 @@ app.include_router(diagnosticos.router)
 app.include_router(dashboard.router)
 app.include_router(documentos.router)
 app.include_router(mi_panel.router)
+app.include_router(mi_empresa.router)

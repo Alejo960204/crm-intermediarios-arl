@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import EstadoProcesoBadge from "@/components/EstadoProcesoBadge";
 import {
-  clearToken, getToken, listarProcesos, obtenerUsuarioActual, type ProcesoListItem, type Usuario,
+  clearToken, esDeEmpresa, getToken, listarProcesos, obtenerUsuarioActual, type ProcesoListItem, type Usuario,
 } from "@/lib/api";
 
 const fmt = (d: string | null) => (d ? new Date(d.length === 10 ? `${d}T00:00:00` : d).toLocaleDateString("es-CO") : "—");
@@ -31,8 +31,8 @@ export default function ProcesosPage() {
     cargar();
   }, [router, cargar]);
 
-  const esRoot = usuario?.rol === "root Admin";
-  const filtrados = procesos?.filter((p) => `${p.empresa} ${p.nit} ${p.arl_destino ?? ""} ${p.estado} ${p.empleado ?? ""}`.toLowerCase().includes(q.toLowerCase()));
+  const esRoot = usuario?.rol === "administrador";
+  const filtrados = procesos?.filter((p) => `${p.empresa} ${p.nit} ${p.arl_destino ?? ""} ${p.estado} `.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <main className="mx-auto max-w-7xl p-6">
@@ -42,10 +42,10 @@ export default function ProcesosPage() {
           {usuario && <p className="text-xs text-slate-500">{usuario.nombre} · {usuario.rol}</p>}
         </div>
         <div className="flex gap-2">
-          {usuario?.rol !== "empleado" && <Link href="/procesos/nuevo" className="rounded bg-blue-700 px-3 py-1 text-xs text-white">+ Nuevo proceso</Link>}
+          {usuario && !esDeEmpresa(usuario) && <Link href="/procesos/nuevo" className="rounded bg-blue-700 px-3 py-1 text-xs text-white">+ Nuevo proceso</Link>}
         </div>
       </header>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por empresa, NIT, ARL, estado o empleado"
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por empresa, NIT, ARL, o estado"
         className="mb-3 w-full max-w-sm rounded border border-slate-300 px-3 py-2 text-sm" />
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
       <div className="overflow-x-auto rounded-lg bg-white shadow">
@@ -56,7 +56,6 @@ export default function ProcesosPage() {
               <th className="px-4 py-3">Estado</th><th className="px-4 py-3">Inicio vigencia</th>
               <th className="px-4 py-3">Vencimiento</th><th className="px-4 py-3">Actualización</th>
               {esRoot && <th className="px-4 py-3">Propietario</th>}
-              {usuario?.rol !== "cliente" && <th className="px-4 py-3">Empleado</th>}
               <th className="px-4 py-3">Acciones</th>
             </tr>
           </thead>
@@ -73,7 +72,6 @@ export default function ProcesosPage() {
                 <td className="px-4 py-3">{fmt(p.fecha_vencimiento)}</td>
                 <td className="px-4 py-3">{fmt(p.fecha_actualizacion)}</td>
                 {esRoot && <td className="px-4 py-3">{p.propietario}</td>}
-                {usuario?.rol !== "cliente" && <td className="px-4 py-3">{p.empleado ?? "Sin asignar"}{p.empleado && p.empleado_activo === false && <span className="ml-1 text-xs text-amber-700">(inactivo)</span>}</td>}
                 <td className="px-4 py-3"><Link href={`/procesos/${p.id}`} className={BTN}>Ver</Link></td>
               </tr>
             ))}

@@ -4,7 +4,8 @@ from .. import storage
 from ..constantes import ROL_ROOT
 from ..repositories import documentos_repository as repo
 from ..schemas.documento import SECCIONES, TIPOS_DOCUMENTO
-from . import empresas_service, procesos_service
+from . import empresas_service, historial_service, procesos_service
+from ..repositories import procesos_repository
 
 MAX_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -49,12 +50,30 @@ def _salida(usuario: dict, d: dict) -> dict:
     }
 
 
-def _acceso_objetivo(usuario: dict, empresa_id: int | None, proceso_id: int | None) -> None:
-    """Misma regla que ver la empresa o el proceso (404 si no corresponde)."""
+def _acceso_objetivo(usuario: dict, empresa_id: int | None, proceso_id: int | None, escritura: bool = False) -> None:
+    """Misma regla que ver la empresa o el proceso (404 si no corresponde). Para escribir, la empresa debe estar activa."""
     if empresa_id is not None:
-        empresas_service.obtener_para_usuario(usuario, empresa_id)
+        e = empresas_service.obtener_para_usuario(usuario, empresa_id)
+        if escritura:
+            empresas_service.exigir_activa(e)
     else:
-        procesos_service.obtener_para_usuario(usuario, proceso_id)
+        p = procesos_service.obtener_para_usuario(usuario, proceso_id)
+        if escritura:
+            empresas_service.exigir_activa({"inactiva": p.get("empresa_inactiva")})
+
+
+def _historial(usuario: dict, accion: str, d: dict, archivo: str | None = None) -> None:
+    """Deja constancia en el historial de la empresa (también para documentos de un proceso)."""
+    empresa_id = d["empresa_id"]
+    de_proceso = ""
+    if empresa_id is None:
+        p = procesos_repository.obtener(d["proceso_id"])
+        empresa_id, de_proceso = (p["empresa_id"] if p else None), f" · proceso #{d['proceso_id']}"
+    if empresa_id is None:
+        return
+    nombre = d.get("titulo") or d.get("tipo") or "Documento"
+    historial_service.registrar(usuario, empresa_id, "documento", accion,
+                                detalle=f"{nombre}" + (f" — {archivo}" if archivo else "") + de_proceso)
 
 
 def _documento(usuario: dict, documento_id: int) -> dict:
@@ -79,7 +98,7 @@ def listar(usuario: dict, empresa_id: int | None, proceso_id: int | None, seccio
 def subir(usuario: dict, empresa_id: int | None, proceso_id: int | None, tipo: str, descripcion: str | None,
           archivo: tuple[str, bytes] | None, seccion: str | None = None, titulo: str | None = None) -> dict:
     _seccion_valida(seccion)
-    _acceso_objetivo(usuario, empresa_id, proceso_id)
+    _acceso_objetivo(usuario, empresa_id, proceso_id, escritura=True)
     if seccion:  # Req 15: título libre en lugar del tipo
         titulo = (titulo or "").strip()
         if not titulo:
@@ -108,12 +127,15 @@ def subir(usuario: dict, empresa_id: int | None, proceso_id: int | None, tipo: s
         if ruta:
             storage.eliminar(ruta)
         raise
-    return _salida(usuario, repo.obtener(did))
+    nuevo = repo.obtener(did)
+    _historial(usuario, "Documento subido", nuevo, nombre)
+    return _salida(usuario, nuevo)
 
 
 def reemplazar(usuario: dict, documento_id: int, archivo: tuple[str, bytes] | None) -> dict:
     """Agrega una versión nueva (las anteriores se conservan). Quien tiene acceso al documento puede reemplazar."""
     d = _documento(usuario, documento_id)
+    _acceso_objetivo(usuario, d["empresa_id"], d["proceso_id"], escritura=True)
     nombre, contenido, mime, ext = _validar_archivo(archivo)
     carpeta = "documentos_empresa" if d["empresa_id"] else "documentos_proceso"
     ruta = None
@@ -125,15 +147,18 @@ def reemplazar(usuario: dict, documento_id: int, archivo: tuple[str, bytes] | No
         if ruta:
             storage.eliminar(ruta)
         raise
-    return _salida(usuario, repo.obtener(documento_id))
+    actual = repo.obtener(documento_id)
+    _historial(usuario, f"Nueva versión de documento (v{actual['versiones'][0]['version']})", actual, nombre)
+    return _salida(usuario, actual)
 
 
 def eliminar(usuario: dict, documento_id: int) -> None:
     """Solo root Admin (eliminación lógica: los archivos y versiones se conservan)."""
-    _documento(usuario, documento_id)
+    d = _documento(usuario, documento_id)
     if usuario["rol"] != ROL_ROOT:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Solo el administrador puede eliminar documentos")
     repo.eliminar_logico(documento_id)
+    _historial(usuario, "Documento eliminado", d)
 
 
 def ruta_descarga(usuario: dict, documento_id: int, version: int):

@@ -1,4 +1,4 @@
-from ..constantes import ROL_EMPLEADO, ROL_ROOT
+from ..alcance import condicion_empresa
 from ..database import get_cursor
 
 # «Caducado» no se guarda: es un proceso Vigente cuya fecha de vencimiento ya llegó.
@@ -6,22 +6,20 @@ ESTADO_EFECTIVO = """CASE WHEN p.estado = 'Vigente' AND p.fecha_vencimiento <= C
                          THEN 'Caducado' ELSE p.estado END"""
 
 _BASE = f"""
-    SELECT p.id, p.empresa_id, e.nombre AS empresa, e.nit, e.usuario_id, p.arl_destino, p.numero_afiliacion,
+    SELECT p.id, p.empresa_id, e.nombre AS empresa, e.nit, e.inactiva AS empresa_inactiva, e.usuario_id, p.arl_destino, p.numero_afiliacion,
            {ESTADO_EFECTIVO} AS estado, p.periodo, p.fecha_inicio, p.fecha_vencimiento, p.observacion,
-           p.fecha_creacion, p.fecha_actualizacion, u.nombre AS propietario, p.empleado_id, emp.nombre AS empleado, emp.activo AS empleado_activo
+           p.fecha_creacion, p.fecha_actualizacion, u.nombre AS propietario
     FROM procesos_afiliacion p
     JOIN empresas e ON e.id = p.empresa_id AND e.eliminado = FALSE
     JOIN usuarios u ON u.id = e.usuario_id
-    LEFT JOIN usuarios emp ON emp.id = p.empleado_id
 """
 
 
 def listar_para_usuario(usuario: dict, empresa_id: int | None = None) -> list[dict]:
     cond, params = [], []
-    if usuario["rol"] == ROL_EMPLEADO:
-        cond.append("p.empleado_id = %s"); params.append(usuario["id"])
-    elif usuario["rol"] != ROL_ROOT:
-        cond.append("e.usuario_id = %s"); params.append(usuario["id"])
+    c, p_ = condicion_empresa(usuario)
+    if c:
+        cond.append(c); params.extend(p_)
     if empresa_id is not None:
         cond.append("p.empresa_id = %s"); params.append(empresa_id)
     where = ("WHERE " + " AND ".join(cond)) if cond else ""
@@ -46,20 +44,16 @@ def historial(proceso_id: int) -> list[dict]:
         return cur.fetchall()
 
 
-def crear(empresa_id: int, datos: dict, usuario_id: int, empleado_id: int | None = None) -> int:
+def crear(empresa_id: int, datos: dict, usuario_id: int) -> int:
     with get_cursor() as cur:
         cur.execute(
-            """INSERT INTO procesos_afiliacion (empresa_id, arl_destino, numero_afiliacion, creado_por, empleado_id)
-               VALUES (%s, %s, %s, %s, %s) RETURNING id""",
-            (empresa_id, datos["arl_destino"], datos["numero_afiliacion"], usuario_id, empleado_id))
+            """INSERT INTO procesos_afiliacion (empresa_id, arl_destino, numero_afiliacion, creado_por)
+               VALUES (%s, %s, %s, %s) RETURNING id""",
+            (empresa_id, datos["arl_destino"], datos["numero_afiliacion"], usuario_id))
         pid = cur.fetchone()["id"]
         cur.execute(
             "INSERT INTO procesos_historial (proceso_id, accion, estado, usuario_id) VALUES (%s,'Creación','Pendiente',%s)",
             (pid, usuario_id))
-        if empleado_id:
-            cur.execute("""INSERT INTO procesos_historial (proceso_id, accion, estado, observacion, usuario_id)
-                           SELECT %s, 'Asignación', 'Pendiente', 'Asignado a ' || nombre, %s FROM usuarios WHERE id = %s""",
-                        (pid, usuario_id, empleado_id))
         return pid
 
 
@@ -89,16 +83,3 @@ def cambiar_estado(proceso_id: int, accion: str, estado: str, fecha_inicio, peri
                SELECT id, %s, estado, fecha_inicio, periodo, fecha_vencimiento, observacion, %s
                FROM procesos_afiliacion WHERE id = %s""",
             (accion, usuario_id, proceso_id))
-
-
-def asignar(proceso_id: int, empleado_id: int | None, usuario_id: int) -> None:
-    """Asigna (o quita) el empleado responsable y lo deja en el historial."""
-    with get_cursor() as cur:
-        cur.execute("UPDATE procesos_afiliacion SET empleado_id = %s WHERE id = %s", (empleado_id, proceso_id))
-        cur.execute(
-            """INSERT INTO procesos_historial (proceso_id, accion, estado, fecha_inicio, periodo, fecha_vencimiento,
-                                               observacion, usuario_id)
-               SELECT p.id, 'Asignación', p.estado, p.fecha_inicio, p.periodo, p.fecha_vencimiento,
-                      COALESCE('Asignado a ' || emp.nombre, 'Asignación retirada'), %s
-               FROM procesos_afiliacion p LEFT JOIN usuarios emp ON emp.id = p.empleado_id WHERE p.id = %s""",
-            (usuario_id, proceso_id))

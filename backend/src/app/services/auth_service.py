@@ -2,10 +2,13 @@ import hmac
 
 from fastapi import HTTPException, status
 
-from .. import mailer
+from .. import captcha, mailer
 from ..config import settings
 from ..repositories import codigos_repository, usuarios_repository
-from ..security import create_access_token, generar_codigo, hash_password, huella_codigo, verify_password
+from ..constantes import ROL_ROOT
+from ..security import (create_access_token, create_ticket, decode_ticket, generar_codigo, hash_password, huella_codigo,
+                        verify_password)
+import jwt
 
 MAX_REENVIOS = 5
 VERSION_POLITICA = "2026-10-v1"  # cambiar al modificar el texto de la política (frontend/src/components/TextoConsentimiento.tsx)
@@ -39,18 +42,12 @@ def _token(usuario: dict) -> dict:
     return {
         "access_token": create_access_token(usuario["id"]),
         "token_type": "bearer",
-        "usuario": {"id": usuario["id"], "nombre": usuario["nombre"], "email": usuario["email"], "rol": usuario["rol"]},
+        "usuario": {"id": usuario["id"], "nombre": usuario["nombre"], "email": usuario["email"], "rol": usuario["rol"], "empresa_id": usuario.get("empresa_id")},
     }
 
 
-def iniciar_login(email: str, password: str, acepta_datos: bool = False, ip: str | None = None) -> dict:
-    if not acepta_datos:  # Req 18: sin aceptar la política no se inicia sesión
-        raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            "Debe aceptar la política de tratamiento de datos personales para ingresar.")
-    usuario = usuarios_repository.obtener_por_email(email)
-    if not usuario or not usuario["activo"] or not verify_password(password, usuario["password_hash"]):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciales inválidas")
-    usuarios_repository.registrar_consentimiento(usuario["id"], VERSION_POLITICA, ip)
+def _continuar(usuario: dict) -> dict:
+    """Credenciales y política ya resueltas: entrega el token o envía el código por correo."""
     if not settings.VERIFICACION_CORREO:  # interruptor desactivado: acceso solo con contraseña
         return {"requiere_verificacion": False, **_token(usuario)}
     codigos_repository.limpiar_antiguos()
@@ -58,6 +55,37 @@ def iniciar_login(email: str, password: str, acepta_datos: bool = False, ip: str
     codigo_id = codigos_repository.crear(usuario["id"], huella_codigo(usuario["id"], codigo), settings.CODIGO_MINUTOS)
     _enviar_codigo(usuario, codigo)
     return _pendiente(codigo_id, usuario["email"])
+
+
+def iniciar_login(email: str, password: str, acepta_datos: bool = False, ip: str | None = None,
+                  captcha_token: str | None = None) -> dict:
+    """Paso 1: captcha y credenciales. El administrador entra sin política de datos; los demás roles deben aceptarla:
+    si aún no la aceptaron se devuelve un ticket de consentimiento (el captcha no se vuelve a pedir)."""
+    captcha.verificar(captcha_token, ip)
+    usuario = usuarios_repository.obtener_por_email(email)
+    if not usuario or not usuario["activo"] or not verify_password(password, usuario["password_hash"]):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Credenciales inválidas")
+    if usuario["rol"] != ROL_ROOT:
+        if not acepta_datos:  # Req 18: sin aceptar la política no se inicia sesión
+            return {"requiere_verificacion": False, "requiere_consentimiento": True,
+                    "consentimiento_token": create_ticket(usuario["id"], "consentimiento")}
+        usuarios_repository.registrar_consentimiento(usuario["id"], VERSION_POLITICA, ip)
+    return _continuar(usuario)
+
+
+def aceptar_consentimiento(consentimiento_token: str, acepta_datos: bool, ip: str | None = None) -> dict:
+    if not acepta_datos:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "Debe aceptar la política de tratamiento de datos personales para ingresar.")
+    try:
+        usuario_id = decode_ticket(consentimiento_token, "consentimiento")
+    except jwt.PyJWTError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "La sesión de ingreso venció. Inicie sesión de nuevo.")
+    usuario = usuarios_repository.obtener_por_id(usuario_id)
+    if not usuario or not usuario["activo"]:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "La sesión de ingreso venció. Inicie sesión de nuevo.")
+    usuarios_repository.registrar_consentimiento(usuario["id"], VERSION_POLITICA, ip)
+    return _continuar(usuario)
 
 
 def _obtener_vigente(verificacion_id: int) -> dict:
@@ -110,8 +138,9 @@ MENSAJE_RECUPERAR = "Si el correo está registrado, enviamos un código de verif
 ERROR_CODIGO = "El código es incorrecto o venció. Verifíquelo o solicite uno nuevo."
 
 
-def solicitar_recuperacion(email: str) -> dict:
-    """Responde siempre lo mismo, exista o no el correo (no revela qué correos están registrados)."""
+def solicitar_recuperacion(email: str, captcha_token: str | None = None, ip: str | None = None) -> dict:
+    """Responde siempre lo mismo, exista o no el correo (no revela qué correos están registrados). Pide captcha."""
+    captcha.verificar(captcha_token, ip)
     usuario = usuarios_repository.obtener_por_email(email)
     if usuario and usuario["activo"]:
         ultimo = codigos_repository.ultimo_recuperacion(usuario["id"])

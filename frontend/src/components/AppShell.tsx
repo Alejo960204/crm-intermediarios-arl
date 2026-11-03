@@ -14,6 +14,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [sgsst, setSgsst] = useState(true);
+  const [rui, setRui] = useState(true);
   const enLogin = pathname.startsWith("/login") || pathname.startsWith("/recuperar");
 
   useEffect(() => {
@@ -26,8 +27,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (enLogin) return <>{children}<ThemeToggle className="fixed right-4 top-4 z-10 border border-slate-300 bg-white/80 text-slate-700 shadow backdrop-blur hover:bg-white" /></>;
   if (!usuario) return <>{children}</>;
 
-  const root = usuario.rol === "root Admin";
-  const empleado = usuario.rol === "empleado";
+  const root = usuario.rol === "administrador";
+  const deEmpresa = usuario.rol === "empresa" || usuario.rol === "empleado";
   const enlace = (href: string, texto: string, extra = "") => {
     const activo = pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
     return (
@@ -42,7 +43,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="md:flex md:min-h-screen">
       <div className="flex items-center justify-between bg-gradient-to-r from-marca-marino to-[#0b2a40] px-4 py-2 text-white md:hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Progrescol BIC S.A.S." className="h-9 w-auto rounded bg-white px-2 py-0.5" />
+        <img src="/logo-menu.png" alt="Progrescol BIC S.A.S." className="h-10 w-auto" />
         <div className="flex items-center gap-2">
           <ThemeToggle className="text-white/80 hover:bg-white/10" />
           <button type="button" aria-label="Abrir menú" className="rounded border border-white/30 px-2 py-1 text-xs"
@@ -52,19 +53,25 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <aside aria-label="Menú principal"
         className={`${abierto ? "block" : "hidden"} w-full shrink-0 bg-gradient-to-b from-marca-marino via-[#103a56] to-[#0a2536] p-3 text-white md:sticky md:top-0 md:block md:h-screen md:w-64 md:overflow-y-auto`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Progrescol BIC S.A.S." className="mb-4 hidden w-full rounded-xl bg-white p-2 shadow-lg ring-1 ring-white/20 md:block" />
+        <img src="/logo-menu.png" alt="Progrescol BIC S.A.S." className="mx-auto mb-4 hidden w-full max-w-[13rem] md:block" />
         <nav className="space-y-0.5">
-          {root && enlace("/dashboard", "Dashboard")}
-          {usuario.rol === "cliente" && enlace("/mi-panel", "Mi panel")}
-          {!empleado && enlace("/registros", "Mis Registros")}
-          {enlace("/empresas", "Empresas")}
-          {enlace("/procesos", "Procesos")}
-          {enlace("/diagnosticos", "Diagnósticos")}
-          {root && enlace("/usuarios", "Usuarios")}
+          <button type="button" onClick={() => setRui(!rui)} aria-expanded={rui}
+            className={`${ITEM} flex w-full items-center justify-between text-left font-medium text-white`}>
+            <span>RUI</span><span>{rui ? "−" : "+"}</span>
+          </button>
+          {rui && (
+            <div className="ml-3 space-y-0.5 border-l border-white/15 pl-2">
+              {(!deEmpresa || usuario.rol === "empresa") && enlace("/dashboard", "Dashboard")}
+              {!deEmpresa && enlace("/registros", "Mis Registros")}
+              {deEmpresa ? (usuario.empresa_id ? enlace(`/empresas/${usuario.empresa_id}`, "Mi empresa") : null) : enlace("/empresas", "Empresas")}
+              {enlace("/procesos", "Procesos")}
+              {enlace("/diagnosticos", "Diagnósticos")}
+              {root && enlace("/usuarios", "Intermediarios")}
+            </div>
+          )}
           <div className="my-2 border-t border-white/15" />
-          {sec("rui")}
           <button type="button" onClick={() => setSgsst(!sgsst)} aria-expanded={sgsst}
-            className={`${ITEM} flex w-full items-center justify-between text-left text-white/75`}>
+            className={`${ITEM} flex w-full items-center justify-between text-left font-medium text-white`}>
             <span>SG-SST <span className="text-xs text-white/50">(seguridad en el trabajo)</span></span><span>{sgsst ? "−" : "+"}</span>
           </button>
           {sgsst && (
@@ -82,7 +89,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="mt-4 border-t border-white/15 pt-3">
           <div className="flex items-center justify-between gap-2 px-3">
-            <p className="truncate text-xs text-white/60">{usuario.nombre} · {usuario.rol}</p>
+            <p className="truncate text-xs capitalize text-white/60">{usuario.nombre} · {usuario.rol}</p>
             <ThemeToggle className="hidden shrink-0 text-white/80 hover:bg-white/10 md:inline-flex" />
           </div>
           <button type="button" className={`${ITEM} w-full text-left text-white/75`}

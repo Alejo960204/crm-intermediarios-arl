@@ -1,15 +1,17 @@
 import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from io import BytesIO
 
 from fastapi import HTTPException
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 
-from ..constantes import ROL_CLIENTE, ROL_EMPLEADO, ROL_ROOT
-from ..repositories import usuarios_repository
+from ..constantes import ROL_CLIENTE, ROL_ROOT, ROLES_DE_EMPRESA
+from ..repositories import paquetes_repository, usuarios_repository
 from ..security import hash_password
+from . import paquetes_service
 
 MAX_BYTES = 2 * 1024 * 1024
 MAX_FILAS = 500
@@ -51,7 +53,7 @@ def plantilla_xlsx() -> bytes:
         "Complete una fila por usuario en la hoja «Usuarios», empezando en la fila 2.",
         "Columnas obligatorias: Nombre, Correo y Contraseña (no cambie los títulos de la fila 1).",
         f"La contraseña debe tener al menos {MIN_CLAVE} caracteres.",
-        "Rol (opcional): escriba «cliente» o «empleado». Si la deja vacía, el usuario se crea como «cliente».",
+        "Rol (opcional): solo «intermediario» (por defecto). Los usuarios de empresa y los empleados se crean desde la empresa.",
         "No se pueden crear administradores desde esta carga.",
         "Si el correo ya existe en el sistema, esa fila se omite (no se modifica el usuario).",
         f"Máximo {MAX_FILAS} filas por archivo.",
@@ -108,9 +110,9 @@ def cargar_excel(contenido: bytes) -> dict:
     for fila, v in datos:
         correo = v["correo"].lower()
         error = None
-        rol = {"": ROL_CLIENTE, "cliente": ROL_CLIENTE, "empleado": ROL_EMPLEADO}.get(_norm(v.get("rol", "")))
+        rol = {"": ROL_CLIENTE, "intermediario": ROL_CLIENTE, "cliente": ROL_CLIENTE}.get(_norm(v.get("rol", "")))
         if rol is None:
-            error = "Rol no válido (use «cliente» o «empleado», o déjelo vacío)"
+            error = "Rol no válido (use «intermediario» o déjelo vacío; los empleados se crean desde la empresa)"
         elif not v["nombre"]:
             error = "El nombre es obligatorio"
         elif len(v["nombre"]) > 150:
@@ -153,7 +155,7 @@ def cargar_excel(contenido: bytes) -> dict:
 
 
 # ---------- Req 14B: cambiar rol y activar / desactivar ----------
-ROLES = (ROL_CLIENTE, ROL_EMPLEADO, ROL_ROOT)
+ROLES = (ROL_CLIENTE, ROL_ROOT)
 
 
 def _existente(usuario_id: int) -> dict:
@@ -165,24 +167,69 @@ def _existente(usuario_id: int) -> dict:
 
 def cambiar_rol(actor: dict, usuario_id: int, rol: str) -> dict:
     if rol not in ROLES:
-        raise HTTPException(422, detail=[{"loc": ["body", "rol"], "msg": "Rol no válido (cliente, empleado o root Admin)"}])
+        raise HTTPException(422, detail=[{"loc": ["body", "rol"], "msg": "Rol no válido (intermediario o administrador)"}])
     if usuario_id == actor["id"]:
         raise HTTPException(403, "No puede cambiar su propio rol")
     u = _existente(usuario_id)
+    if u["rol"] in ROLES_DE_EMPRESA:
+        raise HTTPException(409, "Los usuarios de empresa y los empleados se administran desde su empresa; su rol no se cambia.")
     if u["rol"] == rol:
-        return u
+        return _con_paquete(u)
     partes = []
     if u["empresas"]:
         partes.append(f"{u['empresas']} empresa(s)")
     if u["registros"]:
         partes.append(f"{u['registros']} registro(s)")
-    if u["procesos_asignados"]:
-        partes.append(f"{u['procesos_asignados']} proceso(s) asignado(s)")
     if partes:
         raise HTTPException(409, "No se puede cambiar el rol: el usuario tiene datos asociados ("
                             + ", ".join(partes) + "). Reasigne o retire esos datos primero.")
     usuarios_repository.cambiar_rol(usuario_id, rol)
-    return _existente(usuario_id)
+    return _con_paquete(_existente(usuario_id))
+
+
+def _con_paquete(u: dict) -> dict:
+    u = dict(u)
+    u["paquete"] = paquetes_service.estado(u["id"]) if u["rol"] == ROL_CLIENTE else None
+    return u
+
+
+def listar() -> list[dict]:
+    return [_con_paquete(u) for u in usuarios_repository.listar()]
+
+
+def crear_intermediario(actor: dict, d) -> dict:
+    email = str(d.email).strip().lower()
+    if email in usuarios_repository.correos_existentes():
+        raise HTTPException(409, detail=[{"loc": ["body", "email"], "msg": "Ya existe un usuario con ese correo"}])
+    uid = usuarios_repository.crear(d.nombre, email, hash_password(d.password), ROL_CLIENTE)
+    _asignar(actor, uid, d.paquete)
+    return _con_paquete(_existente(uid))
+
+
+def _asignar(actor: dict, usuario_id: int, p) -> None:
+    inicio = p.fecha_inicio or date.today()
+    paquetes_repository.crear(usuario_id, p.nombre, p.cantidad_empresas, p.periodicidad, inicio,
+                              paquetes_service.vencimiento(inicio, p.periodicidad), actor["id"])
+
+
+def asignar_paquete(actor: dict, usuario_id: int, p) -> dict:
+    """Nuevo paquete o renovación: el cupo empieza de cero; las empresas anteriores se siguen administrando."""
+    u = _existente(usuario_id)
+    if u["rol"] != ROL_CLIENTE:
+        raise HTTPException(409, "Los paquetes solo aplican a usuarios con rol intermediario")
+    _asignar(actor, usuario_id, p)
+    return _con_paquete(_existente(usuario_id))
+
+
+def historial_paquetes(usuario_id: int) -> list[dict]:
+    _existente(usuario_id)
+    return paquetes_repository.historial(usuario_id)
+
+
+def atender_solicitud(actor: dict, usuario_id: int) -> dict:
+    _existente(usuario_id)
+    paquetes_repository.atender_solicitud(usuario_id, actor["id"])
+    return _con_paquete(_existente(usuario_id))
 
 
 def cambiar_activo(actor: dict, usuario_id: int, activo: bool) -> dict:
@@ -191,4 +238,4 @@ def cambiar_activo(actor: dict, usuario_id: int, activo: bool) -> dict:
     u = _existente(usuario_id)
     if u["activo"] != activo:
         usuarios_repository.cambiar_activo(usuario_id, activo)  # sus datos y asignaciones se conservan
-    return _existente(usuario_id)
+    return _con_paquete(_existente(usuario_id))

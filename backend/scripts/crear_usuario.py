@@ -1,6 +1,6 @@
 """Crea un usuario. Uso (desde backend/src):
-    python ../scripts/crear_usuario.py "Nombre" correo@dominio.com clave [--rol "root Admin"] [--demo]
-Sin --rol, el usuario se crea con rol 'cliente'. 'root Admin' solo se asigna con --rol explícito.
+    python ../scripts/crear_usuario.py "Nombre" correo@dominio.com clave [--rol administrador] [--demo]
+Sin --rol, el usuario se crea con rol 'intermediario'. 'administrador' solo se asigna con --rol explícito.
 --demo inserta además 3 registros de ejemplo para ver la tabla.
 """
 import argparse
@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from app.constantes import ROL_CLIENTE, ROL_EMPLEADO, ROL_ROOT  # noqa: E402
+from app.constantes import ROL_CLIENTE, ROL_ROOT  # noqa: E402
 from app.database import get_cursor  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
@@ -19,7 +19,7 @@ def main():
     p.add_argument("nombre")
     p.add_argument("email")
     p.add_argument("clave")
-    p.add_argument("--rol", choices=[ROL_CLIENTE, ROL_EMPLEADO, ROL_ROOT], default=ROL_CLIENTE)
+    p.add_argument("--rol", choices=[ROL_CLIENTE, ROL_ROOT], default=ROL_CLIENTE)
     p.add_argument("--demo", action="store_true")
     a = p.parse_args()
     with get_cursor() as cur:

@@ -4,7 +4,8 @@ from pydantic import BaseModel, EmailStr
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-    acepta_datos: bool = False  # Req 18: aceptación de la política de tratamiento de datos personales
+    acepta_datos: bool = False  # Req 18: aceptación de la política de tratamiento de datos personales (no aplica al administrador)
+    captcha_token: str | None = None  # Cloudflare Turnstile (si está activo en el servidor)
 
 
 class UsuarioOut(BaseModel):
@@ -12,6 +13,7 @@ class UsuarioOut(BaseModel):
     nombre: str
     email: EmailStr
     rol: str
+    empresa_id: int | None = None  # roles empresa y empleado: la empresa a la que pertenecen
 
 
 class TokenResponse(BaseModel):
@@ -29,10 +31,17 @@ class VerificacionPendiente(BaseModel):
     reenviar_en: int  # segundos hasta poder pedir otro código
 
 
+class ConsentimientoRequest(BaseModel):
+    consentimiento_token: str
+    acepta_datos: bool = False
+
+
 class LoginResponse(BaseModel):
     """Con verificación activa: trae verificacion_id y correo. Con verificación desactivada: trae el token."""
 
     requiere_verificacion: bool
+    requiere_consentimiento: bool = False  # credenciales correctas; falta aceptar la política de datos (no administradores)
+    consentimiento_token: str | None = None
     verificacion_id: int | None = None
     correo: str | None = None
     reenviar_en: int | None = None
@@ -52,6 +61,7 @@ class ReenviarRequest(BaseModel):
 
 class RecuperarRequest(BaseModel):
     email: EmailStr
+    captcha_token: str | None = None
 
 
 class RecuperarConfirmar(BaseModel):

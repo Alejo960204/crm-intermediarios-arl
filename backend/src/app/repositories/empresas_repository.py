@@ -1,4 +1,4 @@
-from ..constantes import ROL_EMPLEADO, ROL_ROOT
+from ..alcance import condicion_empresa
 from ..database import get_cursor
 
 CAMPOS = ("nombre", "nit", "direccion", "telefono_fijo", "celular", "departamento_codigo", "municipio_codigo",
@@ -29,20 +29,18 @@ CATEGORIAS = {  # categoría del dashboard -> condición sobre el proceso más r
 
 
 def listar_para_usuario(usuario: dict, categoria: str | None = None) -> list[dict]:
-    if usuario["rol"] == ROL_ROOT:
-        filtro, params = "", ()
-    elif usuario["rol"] == ROL_EMPLEADO:  # solo empresas con algún proceso asignado a él
-        filtro, params = "AND e.id IN (SELECT empresa_id FROM procesos_afiliacion WHERE empleado_id = %s)", (usuario["id"],)
-    else:
-        filtro, params = "AND e.usuario_id = %s", (usuario["id"],)
-    if categoria:
-        filtro += f" AND ({CATEGORIAS[categoria]})"
+    cond, params = condicion_empresa(usuario)
+    filtro = f"AND {cond}" if cond else ""
+    if categoria:  # las categorías del dashboard solo cuentan empresas activas
+        filtro += f" AND e.inactiva = FALSE AND ({CATEGORIAS[categoria]})"
     with get_cursor() as cur:
         cur.execute(
             f"""
-            SELECT e.id, e.nombre, e.nit, m.nombre AS ciudad, e.gerente, e.trabajadores_directos,
+            SELECT e.id, e.nombre, e.nit, e.inactiva, m.nombre AS ciudad, e.gerente, e.trabajadores_directos,
                    e.fecha_creacion, e.fecha_actualizacion, u.nombre AS propietario,
-                   up.estado AS estado_proceso, up.fecha_vencimiento
+                   up.estado AS estado_proceso, up.fecha_vencimiento, e.max_empleados,
+                   (SELECT count(*) FROM usuarios x WHERE x.empresa_id = e.id AND x.rol = 'empleado' AND x.activo) AS empleados,
+                   EXISTS (SELECT 1 FROM usuarios x WHERE x.empresa_id = e.id AND x.rol = 'empresa') AS tiene_login
             FROM empresas e
             JOIN usuarios u ON u.id = e.usuario_id
             LEFT JOIN municipios m ON m.codigo = e.municipio_codigo
@@ -59,7 +57,11 @@ def obtener(empresa_id: int) -> dict | None:
     with get_cursor() as cur:
         cur.execute(
             """
-            SELECT e.*, u.nombre AS propietario FROM empresas e
+            SELECT e.*, u.nombre AS propietario,
+                   (SELECT count(*) FROM usuarios x WHERE x.empresa_id = e.id AND x.rol = 'empleado' AND x.activo) AS empleados,
+                   (SELECT x.email FROM usuarios x WHERE x.empresa_id = e.id AND x.rol = 'empresa') AS login_email,
+                   (SELECT x.activo FROM usuarios x WHERE x.empresa_id = e.id AND x.rol = 'empresa') AS login_activo
+            FROM empresas e
             JOIN usuarios u ON u.id = e.usuario_id
             WHERE e.id = %s AND e.eliminado = FALSE
             """,
@@ -68,12 +70,12 @@ def obtener(empresa_id: int) -> dict | None:
         return cur.fetchone()
 
 
-def crear(usuario_id: int, datos: dict) -> int:
+def crear(usuario_id: int, datos: dict, paquete_id: int | None = None, max_empleados: int | None = None) -> int:
     cols = ", ".join(CAMPOS)
     vals = ", ".join(f"%({c})s" for c in CAMPOS)
     with get_cursor() as cur:
-        cur.execute(f"INSERT INTO empresas (usuario_id, {cols}) VALUES (%(usuario_id)s, {vals}) RETURNING id",
-                    {**datos, "usuario_id": usuario_id})
+        cur.execute(f"INSERT INTO empresas (usuario_id, paquete_id, max_empleados, {cols}) VALUES (%(usuario_id)s, %(paquete_id)s, %(max_empleados)s, {vals}) RETURNING id",
+                    {**datos, "usuario_id": usuario_id, "paquete_id": paquete_id, "max_empleados": max_empleados})
         return cur.fetchone()["id"]
 
 
@@ -86,16 +88,21 @@ def actualizar(empresa_id: int, usuario_id: int | None, datos: dict) -> None:
                     {**datos, "id": empresa_id, "usuario_id": usuario_id})
 
 
-def eliminar_logico(empresa_id: int) -> None:
+def cambiar_inactiva(empresa_id: int, inactiva: bool) -> None:
+    """Inactivar no elimina ni libera cupo: la empresa y su historial se conservan."""
     with get_cursor() as cur:
-        cur.execute("UPDATE empresas SET eliminado = TRUE WHERE id = %s", (empresa_id,))
+        cur.execute("UPDATE empresas SET inactiva = %s WHERE id = %s", (inactiva, empresa_id))
 
 
-def empleado_tiene_proceso(empleado_id: int, empresa_id: int) -> bool:
+def cambiar_max_empleados(empresa_id: int, maximo: int | None) -> None:
     with get_cursor() as cur:
-        cur.execute("SELECT 1 FROM procesos_afiliacion WHERE empleado_id = %s AND empresa_id = %s LIMIT 1",
-                    (empleado_id, empresa_id))
-        return cur.fetchone() is not None
+        cur.execute("UPDATE empresas SET max_empleados = %s WHERE id = %s", (maximo, empresa_id))
+
+
+def contar_empleados_activos(empresa_id: int) -> int:
+    with get_cursor() as cur:
+        cur.execute("SELECT count(*) AS n FROM usuarios WHERE empresa_id = %s AND rol = 'empleado' AND activo", (empresa_id,))
+        return cur.fetchone()["n"]
 
 
 def contar_dashboard() -> dict:
@@ -111,6 +118,6 @@ def contar_dashboard() -> dict:
                    count(*) FILTER (WHERE {CATEGORIAS['sin_proceso']}) AS sin_proceso,
                    count(*) FILTER (WHERE {CATEGORIAS['por_vencer']}) AS por_vencer
             FROM empresas e {ULTIMO_PROCESO}
-            WHERE e.eliminado = FALSE
+            WHERE e.eliminado = FALSE AND e.inactiva = FALSE
             """)
         return cur.fetchone()

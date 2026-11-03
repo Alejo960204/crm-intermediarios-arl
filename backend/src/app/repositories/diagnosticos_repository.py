@@ -1,6 +1,6 @@
 import json
 
-from ..constantes import ROL_EMPLEADO, ROL_ROOT
+from ..alcance import condicion_empresa
 from ..database import get_cursor
 
 CAMPOS_BOOL = ("panorama_riesgos", "copasst", "comite_convivencia", "reglamento_hs", "plan_trabajo",
@@ -19,11 +19,9 @@ _BASE = """
 
 def listar_para_usuario(usuario: dict, empresa_id: int | None) -> list[dict]:
     cond, params = [], []
-    if usuario["rol"] == ROL_EMPLEADO:
-        cond.append("d.empresa_id IN (SELECT empresa_id FROM procesos_afiliacion WHERE empleado_id = %s)")
-        params.append(usuario["id"])
-    elif usuario["rol"] != ROL_ROOT:
-        cond.append("e.usuario_id = %s"); params.append(usuario["id"])
+    c, p_ = condicion_empresa(usuario)
+    if c:
+        cond.append(c); params.extend(p_)
     if empresa_id is not None:
         cond.append("d.empresa_id = %s"); params.append(empresa_id)
     where = ("WHERE " + " AND ".join(cond)) if cond else ""

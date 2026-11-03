@@ -439,7 +439,7 @@ Luego reinicie el backend.
 
 - **Equipos tecnológicos:** nuevas casillas *Serie* (máx. 100) y *Ubicación* (máx. 150), opcionales. Solo aplican a equipos, no a software.
 - **Consentimiento (Ley 1581 de 2012):** el login muestra el texto de la política y una casilla obligatoria; el botón «Continuar» queda deshabilitado hasta marcarla. Cada inicio de sesión exitoso guarda la aceptación en la tabla `consentimientos_datos` (usuario, versión, IP, fecha).
-  - El texto es un **borrador**: complete los marcadores `[NIT]`, `[CORREO]` y `[DIRECCIÓN]` (la razón social ya es PROGRESCOL BIC S.A.S.) en `frontend/src/components/TextoConsentimiento.tsx` (constante `CONTACTO_DATOS`) y haga revisarlo por su asesor legal.
+  - El texto es un **borrador**: complete los marcadores `[CORREO]` y `[DIRECCIÓN]` (la razón social ya es PROGRESCOL BIC S.A.S.) en `frontend/src/components/TextoConsentimiento.tsx` (constante `CONTACTO_DATOS`) y haga revisarlo por su asesor legal.
   - Si cambia el texto, cambie también `VERSION_POLITICA` en `backend/src/app/services/auth_service.py`.
 - **¿Olvidó su contraseña?:** enlace en el login → pantalla `/recuperar`: correo → código de 6 dígitos (vigencia, intentos y reenvío iguales al Req 8: `CODIGO_MINUTOS`, `CODIGO_MAX_INTENTOS`, `CODIGO_REENVIO_SEGUNDOS`) → nueva contraseña (mín. 8). Al terminar vuelve al login con mensaje de éxito. La respuesta es la misma exista o no el correo. Máximo 5 solicitudes por hora por usuario.
   - Con SMTP configurado el código llega por correo; sin SMTP se imprime en la consola del backend (modo de prueba).
@@ -454,3 +454,118 @@ No requiere cambios en la base de datos ni en el backend: solo reemplace la carp
 - **Login y recuperar contraseña:** fondo con formas suaves en azul y verde, tarjeta translúcida con animación de entrada.
 - **Dinámico (sutil):** transiciones al pasar el mouse, tarjetas del Dashboard/Mi panel que se elevan, filas de tablas resaltadas, aparición suave de cada pantalla, botón principal con degradado. Se desactiva solo si el sistema pide «reducir movimiento».
 - **Modo oscuro:** interruptor (luna/sol) en el menú lateral y arriba a la derecha en el login. Recuerda la elección en el navegador; la primera vez usa la del sistema. La firma dibujada mantiene fondo blanco.
+
+## Req 19b — Logo del menú sin fondo
+
+El logotipo del menú lateral (y de la barra superior en móvil) ahora usa `frontend/public/logo-menu.png`: versión sin fondo blanco, con los textos en blanco y un contorno claro alrededor del símbolo para que se lea sobre el azul marino. El `logo.png` original se conserva para la marca de agua del login. Solo reemplace la carpeta `frontend` y reinicie.
+
+## Req 20 — Menú: todo bajo RUI y «Usuarios» → «Intermediarios»
+
+Sin cambios en base de datos ni backend: reemplace la carpeta `frontend` y reinicie.
+
+- **RUI** ahora es un grupo desplegable (abierto por defecto, se pliega con un clic) con: Dashboard (root), Mi panel (cliente), Mis Registros (root y cliente), Empresas, Procesos, Diagnósticos e Intermediarios (root). Cada rol ve solo lo que ya veía.
+- **SG-SST** sigue igual debajo de RUI.
+- El antiguo repositorio de documentos «RUI» se quitó del menú (la página ya no existe; los archivos que se hubieran subido siguen guardados en la base de datos).
+- «Usuarios» se llama ahora **Intermediarios** en el menú y en el título de la pantalla; la dirección interna (`/usuarios`) y la base de datos no cambian.
+
+## Req 21A — Roles Administrador / Intermediario, límite de empresas y Dashboard
+
+**Base de datos (ejecutar desde la carpeta `backend`, cambiando usuario y base):**
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21a_roles_limite.sql
+```
+
+Luego reinicie el backend (`backend\src`: `python -m uvicorn app.main:app --port 8000`) y el frontend. El script se puede repetir sin riesgo.
+
+- **Roles renombrados de verdad** (base de datos, código y pantallas): `root Admin` → **administrador** y `cliente` → **intermediario**. El script migra sus usuarios actuales. En README anteriores, donde dice «root Admin» léase «administrador» y donde dice «cliente», «intermediario». El rol `empleado` actual no se toca en esta parte; se redefine en la 21B (empleado de una empresa).
+- **Scripts:** `crear_usuario.py --rol administrador | intermediario | empleado` (por defecto intermediario). La carga masiva de Excel acepta «intermediario» o «empleado» (también entiende «cliente» como intermediario).
+- **Administrador:** ve todo y tiene todos los permisos; no tiene límite de empresas.
+- **Límite de empresas:** en **RUI → Intermediarios**, columna «Empresas / límite», botón **Editar** (número entero ≥ 0; vacío = sin límite). Solo cuentan las empresas activas (las eliminadas liberan cupo). Si baja el límite por debajo de las que ya tiene, el intermediario las conserva y no puede crear más. Al llegar al límite, el botón «+ Nueva empresa» se bloquea y el servidor rechaza la creación con un mensaje.
+- **Dashboard del administrador:** nueva tarjeta **Intermediarios activos** (enlaza a Intermediarios).
+- **Dashboard del intermediario:** «Mi panel» pasó a llamarse **Dashboard** (misma información: tarjetas de sus empresas, alertas de vigencia, detalle por empresa y registros) y ahora muestra «Empresas creadas: X de Y». Solo ve sus propios datos. La dirección `/mi-panel` redirige a `/dashboard`.
+- **API nuevos/cambiados:** `PATCH /usuarios/{id}/limite-empresas` (administrador), `GET /empresas/cupo`, `GET /dashboard` (agrega `intermediarios`), `GET /mi-panel` (agrega `cupo`).
+
+## Req 21A (ampliación) — Paquetes de empresas por intermediario
+
+**Base de datos (desde la carpeta `backend`; si aún no aplicó `req21a_roles_limite.sql`, ejecútelo primero):**
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21a_roles_limite.sql
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21a2_paquetes.sql
+```
+
+Reinicie backend y frontend. El script se puede repetir sin riesgo. **Reemplaza** el «límite de empresas» anterior: el límite que hubiera fijado se migra a un «Paquete inicial» sin vencimiento.
+
+- **Paquete:** el administrador lo asigna con nombre, cantidad de empresas, periodicidad (mensual, trimestral, semestral, anual) y fecha de inicio; el vencimiento se calcula solo. Cada asignación queda en el **historial** (botón «Historial» en RUI → Intermediarios).
+- **Nuevo intermediario:** botón «+ Nuevo intermediario» (nombre, correo, clave y paquete). Los creados por Excel quedan **sin paquete = sin límite**.
+- **Cupo:** solo cuenta las empresas creadas con el paquete vigente (activas e inactivas). El intermediario solo administra esas empresas.
+- **Dashboard del intermediario:** muestra empresas creadas, disponibles y total del paquete, con barra de progreso. Aviso ámbar cuando queda ≤20 % (o 1), rojo al llegar al límite o al vencer. Botón «+ Nueva empresa» deshabilitado sin cupo, con aviso para actualizar el paquete y botón **Solicitar ampliación** (avisa al administrador; tarjeta «Solicitudes de ampliación» en su dashboard).
+- **Paquete vencido:** el intermediario puede consultar pero no crear ni editar nada.
+- **Renovación:** un paquete nuevo empieza en cero; las empresas anteriores se siguen administrando.
+- **Inactivar en vez de eliminar:** «Eliminar» desaparece para todos los roles; la empresa se **inactiva** (queda solo en consulta, conserva registros e historial, **no libera cupo**, su NIT sigue reservado) y se puede **reactivar** (intermediario o administrador). Las inactivas no cuentan como activas en los dashboards.
+- El administrador no tiene límite, pero las empresas que cree para un intermediario cuentan en su paquete.
+- **API nuevos:** `POST /usuarios`, `GET/POST /usuarios/{id}/paquetes`, `POST /usuarios/{id}/solicitud/atender`, `PATCH /empresas/{id}/activa`, `POST /empresas/cupo/solicitud`. Se retiró `PATCH /usuarios/{id}/limite-empresas` y `DELETE /empresas/{id}`.
+
+## Req 21B — Rol Empresa (login propio) y Empleados con cupo
+
+**Base de datos (desde la carpeta `backend`; si aún no aplicó los anteriores, ejecútelos primero, en este orden):**
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21a_roles_limite.sql
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21a2_paquetes.sql
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21b_empresa_empleados.sql
+```
+
+Reinicie backend y frontend, y **cierre sesión y vuelva a entrar**. El script se puede repetir sin riesgo.
+
+- **Roles:** administrador → intermediario → **empresa** → **empleado**. Cada usuario de empresa o empleado pertenece a **una sola empresa** y ve únicamente esa empresa, sus procesos, documentos y diagnósticos.
+- **Crear empresa:** el formulario (intermediario o administrador) tiene ahora el bloque «Acceso de la empresa y empleados»: correo y contraseña del usuario de la empresa (obligatorios) y **cupo de empleados** (vacío = sin límite). Un usuario por empresa; el correo no puede repetirse en el sistema.
+- **Empresas ya existentes (sin login):** el listado las marca «Sin usuario de acceso»; el intermediario dueño (o el administrador) abre la empresa y crea su usuario en el panel «Acceso y empleados». Ahí mismo se puede cambiar el cupo de empleados.
+- **Usuario Empresa:** al ingresar llega a «Mi empresa». Puede ver y editar los datos de su empresa, subir documentos, ver procesos y crear/consultar diagnósticos, y **crear y desactivar/reactivar empleados** hasta su cupo (al llegar al cupo se bloquea el botón y avisa que solicite ampliación al intermediario). No puede crear otras empresas, inactivarse, ver «Mis Registros», crear procesos ni cambiar estados.
+- **Usuario Empleado:** ve y **edita** los datos de su empresa y sube documentos; crea diagnósticos. No ve la lista de empleados ni el login de la empresa, y tampoco crea empresas, procesos ni cambia estados. (El registro de quién editó qué llega en la 21C.)
+- **Cupo de empleados:** cuentan solo los empleados **activos** (desactivar libera cupo; reactivar respeta el cupo). El intermediario puede bajar el cupo por debajo de los activos: conservan el acceso pero no se crean más. El **administrador** puede crear empleados sin límite de cupo. El intermediario ve la lista de empleados pero no los crea (los crea la empresa o el administrador).
+- **Empresa inactiva:** sus usuarios pueden entrar y consultar, pero no editar, subir documentos ni crear empleados.
+- **Procesos:** **solo el administrador** avanza los estados. Se retiró por completo la asignación de «empleado responsable» (pantallas y API `PUT /procesos/{id}/asignacion`).
+- **Empleados antiguos** (rol asignado por el administrador): el script los **desactiva**, retira sus asignaciones de procesos (queda una línea en el historial del proceso) y no se pueden volver a crear desde Excel ni scripts.
+- **Pantalla Intermediarios (administrador):** muestra también los usuarios empresa/empleado con el nombre de su empresa (puede activarlos o desactivarlos; su rol no se cambia desde ahí). La carga de Excel y `crear_usuario.py` ya solo crean intermediarios (y administrador con `--rol`).
+- **API nuevos:** `POST /empresas` (ahora con `login_email`, `login_password`, `max_empleados`), `POST /empresas/{id}/login`, `PATCH /empresas/{id}/cupo-empleados`, `GET|POST /empresas/{id}/empleados`, `PATCH /empresas/{id}/empleados/{empleado_id}/activo`. `GET /auth/me` y el inicio de sesión devuelven `empresa_id`.
+- **Política de datos:** se agregó el NIT 900.588.200-5 (siguen pendientes correo y dirección).
+
+## Req 21C — Historial de cambios por empresa
+
+**Base de datos (desde la carpeta `backend`; antes deben estar aplicados los de la 21A y 21B):**
+
+```
+& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -d crm_intermediarios_arl -f sql\req21c_historial.sql
+```
+
+Reinicie backend y frontend. El script se puede repetir sin riesgo.
+
+- **Qué se registra** (quién, cuándo, rol que tenía y qué cambió): **datos de la empresa** (una fila por campo: valor anterior → valor nuevo; solo los campos que realmente cambiaron; departamento, ciudad y propietario se muestran con su nombre), creación/inactivación/reactivación de la empresa y cambios del cupo de empleados; **documentos** (subida, nueva versión y eliminación, también los de sus procesos); **diagnósticos** (creación y, al editar, una fila por campo cambiado; datos generales y factores de riesgo indican «modificado»); **empleados y acceso** (crear, desactivar, reactivar empleados y crear el usuario de la empresa).
+- **Dónde se ve:** sección «Historial de cambios» al final de la pantalla de la empresa, ordenada del más reciente al más antiguo, con filtro por tipo y búsqueda por usuario, campo o acción. La ven el **administrador, el intermediario dueño y el usuario Empresa**; el empleado no (API 403).
+- **Cambios anteriores:** no existen (nunca se guardaron); el historial empieza desde esta versión. Guardar sin modificar nada no genera filas.
+- **API nuevo:** `GET /empresas/{id}/historial`.
+
+## Req 22 — Texto de datos justificado, sin texto para el administrador y captcha (Cloudflare Turnstile)
+
+**Sin cambios en base de datos.** Reemplace `backend` y `frontend`, reinicie y siga los pasos de captcha de abajo.
+
+- **Texto de tratamiento de datos:** ahora está **justificado** y se muestra más alto.
+- **Administrador sin texto:** el login ya no muestra el texto ni la casilla. Se escribe correo + contraseña (+ captcha); si el usuario es **administrador** entra directo y no se registra consentimiento. Para **intermediario, empresa y empleado**, tras validar la clave aparece una pantalla con el texto y la casilla («Aceptar y continuar»); sin aceptar no entran, y la aceptación se sigue registrando en cada ingreso. El captcha no se vuelve a pedir en ese paso. Nuevo `POST /auth/consentimiento`.
+- **Captcha (Cloudflare Turnstile)** en **Iniciar sesión** (todos los roles, incluido administrador) y en **Recuperar contraseña** (al pedir el código y al reenviarlo). El botón queda deshabilitado hasta que el captcha se resuelve; cada token sirve una sola vez.
+- **Cómo activarlo:**
+  1. Cree el widget gratis en https://dash.cloudflare.com → Turnstile (agregue su dominio; para pruebas locales `localhost`). Copie la **Site key** y la **Secret key**.
+  2. Backend (`backend\.env`, o variables de Render): `TURNSTILE_SECRET_KEY=<Secret key>`.
+  3. Frontend (`frontend\.env.local`, o variables de Vercel): `NEXT_PUBLIC_TURNSTILE_SITE_KEY=<Site key>`. Esta variable se lee al compilar: reinicie `npm run dev` o vuelva a desplegar.
+  4. Reinicie backend y frontend.
+- **Sin las claves el captcha queda desactivado** (todo funciona como antes, solo con la nueva pantalla de política): útil mientras crea las claves. Claves de prueba de Cloudflare, que siempre aprueban: Site `1x00000000000000000000AA`, Secret `1x0000000000000000000000000000000AA`.
+- **Para producción** ponga ambas claves; con solo la del servidor nadie podría iniciar sesión (falta el widget) y con solo la del frontend el servidor no validaría nada.
+
+## Req 23 — Dashboard del usuario Empresa
+
+**Sin cambios en base de datos.** Reemplace `backend` y `frontend` y reinicie.
+
+- **Quién lo ve:** solo el usuario con rol **Empresa** (ítem «Dashboard» en el menú y página de inicio al ingresar). Los **empleados** siguen entrando directo a «Mi empresa»; «Mi empresa» conserva el formulario de datos, empleados, documentos e historial.
+- **Contenido:** aviso si la afiliación está por vencer (30 días) o caducada; **Proceso de afiliación** (estado, ARL, n.º de afiliación, vigencia); **Último diagnóstico** (fecha, puntos SG-SST, niveles de accidentalidad y enfermedad laboral) con enlaces; **Empleados y cupo** (activos, cupo, barra de uso); **Documentos** (total y últimos cargados); **Últimos cambios** (5 del historial).
+- **API nuevo:** `GET /mi-empresa/dashboard` (solo rol empresa; empleado e intermediario reciben 403).

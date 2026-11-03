@@ -52,8 +52,12 @@ export interface Usuario {
   id: number;
   nombre: string;
   email: string;
-  rol: "root Admin" | "cliente" | "empleado";
+  rol: "administrador" | "intermediario" | "empresa" | "empleado";
+  empresa_id?: number | null; // roles empresa y empleado: la empresa a la que pertenecen
 }
+
+/** Empresa y Empleado trabajan solo con los datos de su empresa. */
+export const esDeEmpresa = (u: { rol: string } | null | undefined) => u?.rol === "empresa" || u?.rol === "empleado";
 
 export interface Departamento { codigo: string; nombre: string }
 export interface Municipio { codigo: string; nombre: string; departamento_codigo: string }
@@ -111,19 +115,33 @@ async function postAuth<T>(ruta: string, cuerpo: unknown): Promise<T> {
  * Correo y contraseña. Con la verificación por correo activa devuelve los datos del paso 2 (el servidor envía el
  * código); con la verificación desactivada guarda el token y devuelve null (ya se puede entrar).
  */
-export async function login(email: string, password: string, aceptaDatos: boolean): Promise<VerificacionPendiente | null> {
-  const r = await postAuth<VerificacionPendiente & { requiere_verificacion: boolean; access_token?: string }>(
-    "/auth/login", { email, password, acepta_datos: aceptaDatos },
-  );
-  if (!r.requiere_verificacion) {
-    setToken(r.access_token as string);
-    return null;
-  }
-  return r;
+export type ResultadoLogin =
+  | { paso: "entrar" }                                  // sesión iniciada (token guardado)
+  | { paso: "codigo"; datos: VerificacionPendiente }    // falta el código enviado por correo
+  | { paso: "consentimiento"; token: string };          // falta aceptar la política de datos (todos menos administrador)
+
+type RespuestaLogin = VerificacionPendiente & {
+  requiere_verificacion: boolean; requiere_consentimiento?: boolean; consentimiento_token?: string; access_token?: string;
+};
+
+function interpretar(r: RespuestaLogin): ResultadoLogin {
+  if (r.requiere_consentimiento) return { paso: "consentimiento", token: r.consentimiento_token as string };
+  if (!r.requiere_verificacion) { setToken(r.access_token as string); return { paso: "entrar" }; }
+  return { paso: "codigo", datos: r };
+}
+
+export async function login(email: string, password: string, captchaToken: string | null): Promise<ResultadoLogin> {
+  return interpretar(await postAuth<RespuestaLogin>("/auth/login", { email, password, captcha_token: captchaToken }));
+}
+
+/** Paso intermedio: acepta la política de tratamiento de datos y continúa el ingreso. */
+export async function aceptarConsentimiento(token: string): Promise<ResultadoLogin> {
+  return interpretar(await postAuth<RespuestaLogin>("/auth/consentimiento", { consentimiento_token: token, acepta_datos: true }));
 }
 
 /** «¿Olvidó su contraseña?»: pide el código al correo (la respuesta es la misma exista o no el correo). */
-export const solicitarRecuperacion = (email: string) => postAuth<{ mensaje: string }>("/auth/recuperar", { email });
+export const solicitarRecuperacion = (email: string, captchaToken: string | null) =>
+  postAuth<{ mensaje: string }>("/auth/recuperar", { email, captcha_token: captchaToken });
 export const confirmarRecuperacion = (email: string, codigo: string, passwordNueva: string) =>
   postAuth<{ mensaje: string }>("/auth/recuperar/confirmar", { email, codigo, password_nueva: passwordNueva });
 
@@ -429,7 +447,7 @@ export async function urlImagenFirma(registroId: number): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-// ---------- Requerimiento 9: Usuarios y carga masiva (solo root Admin) ----------
+// ---------- Requerimiento 9: Usuarios y carga masiva (solo administrador) ----------
 export interface UsuarioListado {
   id: number;
   nombre: string;
@@ -439,8 +457,34 @@ export interface UsuarioListado {
   fecha_creacion: string;
   empresas: number;
   registros: number;
-  procesos_asignados: number;
+  empresa_nombre: string | null; // empresa a la que pertenece (roles empresa y empleado)
+  paquete: Paquete | null; // solo intermediarios; null = sin paquete (sin límite)
 }
+
+// ---------- Req 21A (ampliación): paquetes de empresas ----------
+export type Periodicidad = "mensual" | "trimestral" | "semestral" | "anual";
+export const PERIODICIDADES: Periodicidad[] = ["mensual", "trimestral", "semestral", "anual"];
+export interface Paquete {
+  id: number; nombre: string; cantidad_empresas: number; periodicidad: Periodicidad | null; fecha_inicio: string;
+  fecha_vencimiento: string | null; usadas: number; disponibles: number; vencido: boolean;
+  alerta: "poco" | "agotado" | "vencido" | null; puede_crear: boolean; solicitud_pendiente: boolean;
+}
+export interface PaqueteEntrada { nombre: string; cantidad_empresas: string; periodicidad: string; fecha_inicio: string }
+export interface PaqueteHistorial {
+  id: number; nombre: string; cantidad_empresas: number; periodicidad: Periodicidad | null; fecha_inicio: string;
+  fecha_vencimiento: string | null; usadas: number; asignado_por: string | null; fecha_creacion: string;
+}
+const cuerpoPaquete = (p: PaqueteEntrada) => ({
+  nombre: p.nombre, cantidad_empresas: p.cantidad_empresas.trim() === "" ? 0 : Number(p.cantidad_empresas),
+  periodicidad: p.periodicidad, fecha_inicio: p.fecha_inicio || null,
+});
+export const crearIntermediario = (d: { nombre: string; email: string; password: string; paquete: PaqueteEntrada }) =>
+  request<UsuarioListado>("/usuarios", { method: "POST", body: JSON.stringify({ ...d, paquete: cuerpoPaquete(d.paquete) }) });
+export const asignarPaquete = (id: number, p: PaqueteEntrada) =>
+  request<UsuarioListado>(`/usuarios/${id}/paquetes`, { method: "POST", body: JSON.stringify(cuerpoPaquete(p)) });
+export const historialPaquetes = (id: number) => request<PaqueteHistorial[]>(`/usuarios/${id}/paquetes`);
+export const atenderSolicitudPaquete = (id: number) =>
+  request<UsuarioListado>(`/usuarios/${id}/solicitud/atender`, { method: "POST" });
 
 export interface FilaCarga { fila: number; correo: string; estado: "creado" | "omitido" | "error"; detalle: string }
 export interface ResultadoCarga { total: number; creados: number; omitidos: number; con_error: number; filas: FilaCarga[] }
@@ -450,6 +494,9 @@ export const listarUsuarios = () => request<UsuarioListado[]>("/usuarios");
 // Req 14B
 export const cambiarRolUsuario = (id: number, rol: string) =>
   request<UsuarioListado>(`/usuarios/${id}/rol`, { method: "PATCH", body: JSON.stringify({ rol }) });
+export interface Cupo { usadas: number; maximo: number | null; disponibles: number | null; puede_crear: boolean; paquete: Paquete | null }
+export const obtenerCupo = () => request<Cupo>("/empresas/cupo");
+export const solicitarAmpliacion = () => request<Cupo>("/empresas/cupo/solicitud", { method: "POST" });
 export const cambiarActivoUsuario = (id: number, activo: boolean) =>
   request<UsuarioListado>(`/usuarios/${id}/activo`, { method: "PATCH", body: JSON.stringify({ activo }) });
 
@@ -480,7 +527,8 @@ export async function descargarPlantillaUsuarios(): Promise<void> {
 export interface EmpresaListItem {
   id: number; nombre: string; nit: string; ciudad: string | null; gerente: string | null;
   trabajadores_directos: number | null; fecha_creacion: string; fecha_actualizacion: string; propietario: string | null;
-  estado_proceso: string | null; fecha_vencimiento: string | null;
+  estado_proceso: string | null; fecha_vencimiento: string | null; inactiva: boolean;
+  max_empleados: number | null; empleados: number; tiene_login: boolean;
 }
 /** Los números se envían como texto ("" = vacío) y el servidor los valida. */
 export interface EmpresaEntrada {
@@ -490,22 +538,50 @@ export interface EmpresaEntrada {
   trabajadores_directos: string; contratistas_independientes: string; estudiantes_decreto_055: string;
   tasa_cotizacion: string; arl_actual: string; tiempo_afiliacion_arl: string; valor_cotizacion_arl: string;
 }
-export type EmpresaDetalle = { id: number; propietario: string | null } & Record<keyof EmpresaEntrada, string | number | null>;
+export type EmpresaDetalle = {
+  id: number; propietario: string | null; inactiva: boolean; max_empleados: number | null; empleados: number;
+  login_email: string | null; login_activo: boolean | null;
+} & Record<keyof EmpresaEntrada, string | number | null>;
+/** Alta: además de los datos generales, el login de la empresa y su cupo de empleados ("" = sin límite). */
+export interface EmpresaNueva extends EmpresaEntrada { login_email: string; login_password: string; max_empleados: string }
 
 export const listarEmpresas = (estado?: string) =>
   request<EmpresaListItem[]>(`/empresas${estado ? `?estado=${encodeURIComponent(estado)}` : ""}`);
 export const obtenerEmpresa = (id: number) => request<EmpresaDetalle>(`/empresas/${id}`);
-export const crearEmpresa = (d: EmpresaEntrada) =>
+export const crearEmpresa = (d: EmpresaNueva) =>
   request<EmpresaDetalle>("/empresas", { method: "POST", body: JSON.stringify(d) });
 export const actualizarEmpresa = (id: number, d: EmpresaEntrada) =>
   request<EmpresaDetalle>(`/empresas/${id}`, { method: "PUT", body: JSON.stringify(d) });
-export const eliminarEmpresa = (id: number) => request<void>(`/empresas/${id}`, { method: "DELETE" });
+/** Inactivar / reactivar (no se elimina: conserva registros e historial y no libera cupo). */
+export const cambiarActivaEmpresa = (id: number, activa: boolean) =>
+  request<EmpresaDetalle>(`/empresas/${id}/activa`, { method: "PATCH", body: JSON.stringify({ activa }) });
+
+// ---------- Req 21B: login de la empresa y empleados ----------
+export interface Empleado { id: number; nombre: string; email: string; activo: boolean; fecha_creacion: string }
+export interface EmpleadosEmpresa { empleados: Empleado[]; activos: number; maximo: number | null; disponibles: number | null; puede_crear: boolean }
+export const crearLoginEmpresa = (id: number, d: { email: string; password: string }) =>
+  request<EmpresaDetalle>(`/empresas/${id}/login`, { method: "POST", body: JSON.stringify(d) });
+export const cambiarCupoEmpleados = (id: number, maximo: string) =>
+  request<EmpresaDetalle>(`/empresas/${id}/cupo-empleados`, { method: "PATCH", body: JSON.stringify({ max_empleados: maximo }) });
+export const listarEmpleados = (id: number) => request<EmpleadosEmpresa>(`/empresas/${id}/empleados`);
+export const crearEmpleado = (id: number, d: { nombre: string; email: string; password: string }) =>
+  request<EmpleadosEmpresa>(`/empresas/${id}/empleados`, { method: "POST", body: JSON.stringify(d) });
+export const cambiarActivoEmpleado = (id: number, empleadoId: number, activa: boolean) =>
+  request<EmpleadosEmpresa>(`/empresas/${id}/empleados/${empleadoId}/activo`, { method: "PATCH", body: JSON.stringify({ activa }) });
+
+// ---------- Req 21C: historial de cambios de la empresa ----------
+export type CategoriaHistorial = "datos" | "documento" | "diagnostico" | "empleado" | "acceso";
+export interface CambioHistorial {
+  id: number; fecha: string; usuario: string; rol: string; categoria: CategoriaHistorial; accion: string;
+  campo: string | null; valor_anterior: string | null; valor_nuevo: string | null; detalle: string | null;
+}
+export const listarHistorialEmpresa = (id: number) => request<CambioHistorial[]>(`/empresas/${id}/historial`);
 
 // ---------- Req 11: Procesos de afiliación ----------
 export type EstadoProceso = "Pendiente" | "En proceso" | "Vigente" | "Caducado";
 export interface ProcesoListItem {
   id: number; empresa_id: number; empresa: string; nit: string; arl_destino: string | null; estado: EstadoProceso;
-  fecha_inicio: string | null; fecha_vencimiento: string | null; fecha_actualizacion: string; propietario: string | null; empleado: string | null; empleado_activo: boolean | null;
+  fecha_inicio: string | null; fecha_vencimiento: string | null; fecha_actualizacion: string; propietario: string | null;
 }
 export interface HistorialProceso {
   id: number; accion: string; estado: string; fecha_inicio: string | null; periodo: string | null;
@@ -513,10 +589,9 @@ export interface HistorialProceso {
 }
 export interface ProcesoDetalle extends ProcesoListItem {
   numero_afiliacion: string | null; periodo: string | null; observacion: string | null; fecha_creacion: string;
-  empleado_id: number | null; puede_asignar: boolean;
   puede_editar_datos: boolean; puede_cambiar_estado: boolean; historial: HistorialProceso[];
 }
-export interface ProcesoEntrada { empresa_id: string; empleado_id?: string; arl_destino: string; numero_afiliacion: string }
+export interface ProcesoEntrada { empresa_id: string; arl_destino: string; numero_afiliacion: string }
 export interface CambioEstadoEntrada {
   estado: "En proceso" | "Vigente"; fecha_inicio: string; periodo: string; observacion: string;
 }
@@ -530,8 +605,6 @@ export const actualizarProceso = (id: number, d: ProcesoEntrada) =>
   request<ProcesoDetalle>(`/procesos/${id}`, { method: "PUT", body: JSON.stringify(d) });
 export const cambiarEstadoProceso = (id: number, d: CambioEstadoEntrada) =>
   request<ProcesoDetalle>(`/procesos/${id}/estado`, { method: "POST", body: JSON.stringify(d) });
-export const asignarProceso = (id: number, empleadoId: string) =>
-  request<ProcesoDetalle>(`/procesos/${id}/asignacion`, { method: "PUT", body: JSON.stringify({ empleado_id: empleadoId }) });
 
 // ---------- Req 12: Diagnóstico ----------
 export const PREGUNTAS_SGSST: [string, string][] = [
@@ -615,7 +688,7 @@ export async function descargarDiagnosticoPdf(id: number): Promise<void> {
 // ---------- Req 13: Dashboard (solo root) ----------
 export interface MetricasDashboard {
   total: number; en_curso: number; vigente: number; caducado: number; sin_proceso: number; por_vencer: number;
-  por_vencer_dias: number;
+  por_vencer_dias: number; intermediarios: number; solicitudes_ampliacion: number;
 }
 export const obtenerDashboard = () => request<MetricasDashboard>("/dashboard");
 
@@ -644,9 +717,8 @@ export function subirDocumento(objetivo: ObjetivoDocumento, id: number, tipo: st
   return request<Documento>(rutaDocumentos(objetivo, id, seccion), { method: "POST", body: fd });
 }
 
-// Req 15: estructura del menú lateral (SG-SST y RUI guardan documentos por empresa)
+// Req 15: estructura del menú lateral (SG-SST guarda documentos por empresa)
 export const SECCIONES: Record<string, string> = {
-  rui: "RUI",
   medicina_laboral: "Medicina Laboral",
   higiene_seguridad: "Higiene y Seguridad Industrial",
   riesgo_psicosocial: "Riesgo Psicosocial",
@@ -685,15 +757,34 @@ export async function descargarDocumento(documentoId: number, version: VersionDo
   URL.revokeObjectURL(url);
 }
 
-// ---------- Req 14C: Mi panel (cliente) ----------
+// ---------- Dashboard del usuario Empresa ----------
+export interface DashboardEmpresaDatos {
+  empresa: { id: number; nombre: string; nit: string; inactiva: boolean };
+  por_vencer_dias: number;
+  proceso: {
+    id: number; estado: EstadoProceso; arl_destino: string | null; numero_afiliacion: string | null; periodo: string | null;
+    fecha_inicio: string | null; fecha_vencimiento: string | null; dias_restantes: number | null; total: number;
+    alerta: "por_vencer" | "caducado" | null;
+  } | null;
+  diagnostico: { id: number; fecha_diagnostico: string; sgsst_puntos: number; sgsst_total: number; nivel_accidentalidad: string; nivel_enfermedad_laboral: string } | null;
+  total_diagnosticos: number;
+  empleados: EmpleadosEmpresa;
+  documentos: { total: number; recientes: { id: number; nombre: string | null; archivo: string; fecha: string; subido_por: string }[] };
+  cambios: CambioHistorial[];
+}
+export const obtenerDashboardEmpresa = () => request<DashboardEmpresaDatos>("/mi-empresa/dashboard");
+
+// ---------- Req 14C / 21A: Dashboard del intermediario (antes «Mi panel») ----------
 export interface EmpresaPanel {
   id: number; nombre: string; nit: string; proceso_id: number | null; estado: EstadoProceso | null; arl_destino: string | null;
-  fecha_vencimiento: string | null; dias_restantes: number | null; empleado: string | null; alerta: "por_vencer" | "caducado" | null;
+  fecha_vencimiento: string | null; dias_restantes: number | null; alerta: "por_vencer" | "caducado" | null;
 }
 export interface PanelCliente {
   por_vencer_dias: number;
   resumen: { total_empresas: number; en_curso: number; vigente: number; caducado: number; sin_proceso: number; por_vencer: number };
   empresas: EmpresaPanel[];
+  cupo: Cupo | null;
+  inactivas: number;
   registros: Record<string, number>;
   total_registros: number;
 }

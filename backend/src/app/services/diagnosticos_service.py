@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 
 from ..repositories import diagnosticos_repository as repo
 from ..schemas.diagnostico import FACTORES, PREGUNTAS_SGSST, DatosGenerales, DiagnosticoEntrada
-from . import empresas_service
+from . import empresas_service, historial_service
 
 
 def _error_campo(codigo: int, campo: str, mensaje: str) -> HTTPException:
@@ -67,7 +67,7 @@ def calcular(d: dict) -> dict:
 
 # ---------- Acceso ----------
 def _acceso(usuario: dict, empresa_id: int) -> dict:
-    """root: cualquiera; cliente: sus empresas; empleado: empresas de sus procesos asignados (también edita)."""
+    """Administrador: cualquiera; intermediario: sus empresas; empresa y empleado: su empresa (todos pueden crear y editar)."""
     return empresas_service.obtener_para_usuario(usuario, empresa_id)
 
 
@@ -135,12 +135,20 @@ def crear(usuario: dict, d: DiagnosticoEntrada) -> dict:
         empresa = _acceso(usuario, d.empresa_id)
     except HTTPException:
         raise _error_campo(422, "empresa_id", "Seleccione una empresa válida")
+    empresas_service.exigir_activa(empresa)
     nuevo = repo.crear(d.empresa_id, usuario["id"], _datos(d), _intermediario(empresa, d.registro_id))
+    historial_service.registrar(usuario, d.empresa_id, "diagnostico", "Diagnóstico creado",
+                                detalle=f"Diagnóstico #{nuevo} del {d.fecha_diagnostico.strftime('%d/%m/%Y')}")
     return obtener_para_usuario(usuario, nuevo)
 
 
 def actualizar(usuario: dict, diagnostico_id: int, d: DiagnosticoEntrada) -> dict:
     actual = obtener_para_usuario(usuario, diagnostico_id)
     empresa = _acceso(usuario, actual["empresa_id"])
-    repo.actualizar(diagnostico_id, _datos(d), _intermediario(empresa, d.registro_id))
+    empresas_service.exigir_activa(empresa)
+    datos = _datos(d)
+    cambios = historial_service.diferencias(actual, datos, historial_service.ETIQUETAS_DIAGNOSTICO, historial_service.BLOQUES_DIAGNOSTICO)
+    repo.actualizar(diagnostico_id, datos, _intermediario(empresa, d.registro_id))
+    historial_service.registrar_varios(usuario, actual["empresa_id"], "diagnostico", "Diagnóstico modificado",
+                                       cambios or [(None, None, None)], detalle=f"Diagnóstico #{diagnostico_id}")
     return obtener_para_usuario(usuario, diagnostico_id)

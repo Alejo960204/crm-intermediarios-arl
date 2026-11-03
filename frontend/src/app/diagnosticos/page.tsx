@@ -24,7 +24,8 @@ function Contenido() {
 
   const cargar = useCallback(async () => {
     try {
-      const [u, l, e] = await Promise.all([obtenerUsuarioActual(), listarDiagnosticos(empresaId), listarEmpresas()]);
+      const [u, l, e0] = await Promise.all([obtenerUsuarioActual(), listarDiagnosticos(empresaId), listarEmpresas()]);
+      const e = e0.filter((x) => !x.inactiva);
       setUsuario(u); setLista(l); setEmpresas(e);
     } catch (e) {
       if ((e as Error).message === "UNAUTHORIZED") { clearToken(); router.replace("/login"); } else setError((e as Error).message);

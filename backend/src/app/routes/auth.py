@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 
 from ..dependencies import get_current_user
-from ..schemas.auth import (LoginRequest, LoginResponse, MensajeOut, RecuperarConfirmar, RecuperarRequest, ReenviarRequest,
+from ..schemas.auth import (ConsentimientoRequest, LoginRequest, LoginResponse, MensajeOut, RecuperarConfirmar, RecuperarRequest, ReenviarRequest,
                             TokenResponse, UsuarioOut, VerificacionPendiente, VerificarRequest)
 from ..services import auth_service
 
@@ -13,7 +13,14 @@ def login(datos: LoginRequest, request: Request):
     """Valida correo y contraseña. Si VERIFICACION_CORREO está activa, envía un código de 6 dígitos al correo
     (paso 1); si no, entrega directamente el token."""
     return auth_service.iniciar_login(datos.email, datos.password, datos.acepta_datos,
-                                      request.client.host if request.client else None)
+                                      request.client.host if request.client else None, datos.captcha_token)
+
+
+@router.post("/consentimiento", response_model=LoginResponse)
+def consentimiento(datos: ConsentimientoRequest, request: Request):
+    """Paso intermedio (todos los roles excepto administrador): acepta la política de datos y continúa el ingreso."""
+    return auth_service.aceptar_consentimiento(datos.consentimiento_token, datos.acepta_datos,
+                                               request.client.host if request.client else None)
 
 
 @router.post("/verificar", response_model=TokenResponse)
@@ -28,9 +35,9 @@ def reenviar(datos: ReenviarRequest):
 
 
 @router.post("/recuperar", response_model=MensajeOut)
-def recuperar(datos: RecuperarRequest):
+def recuperar(datos: RecuperarRequest, request: Request):
     """¿Olvidó su contraseña? Envía un código de 6 dígitos al correo (la respuesta es la misma exista o no el correo)."""
-    return auth_service.solicitar_recuperacion(datos.email)
+    return auth_service.solicitar_recuperacion(datos.email, datos.captcha_token, request.client.host if request.client else None)
 
 
 @router.post("/recuperar/confirmar", response_model=MensajeOut)

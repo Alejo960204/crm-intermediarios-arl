@@ -15,11 +15,10 @@ def _limpio(v):
 
 class ProcesoEntrada(BaseModel):
     empresa_id: int | None = None  # obligatorio al crear; se ignora al editar
-    empleado_id: int | None = None  # solo root Admin al crear; se ignora si lo envía otro rol
     arl_destino: str | None = None
     numero_afiliacion: str | None = None
 
-    @field_validator("arl_destino", "numero_afiliacion", "empresa_id", "empleado_id", mode="before")
+    @field_validator("arl_destino", "numero_afiliacion", "empresa_id", mode="before")
     @classmethod
     def _vacios(cls, v):
         return _limpio(v)
@@ -42,15 +41,6 @@ class CambioEstado(BaseModel):
         if v is not None and len(v) > 1000:
             raise ValueError("La observación no puede superar 1000 caracteres")
         return v
-
-
-class AsignacionEntrada(BaseModel):
-    empleado_id: int | None = None  # null = quitar la asignación
-
-    @field_validator("empleado_id", mode="before")
-    @classmethod
-    def _vacio(cls, v):
-        return _limpio(v)
 
 
 class HistorialItem(BaseModel):
@@ -76,8 +66,6 @@ class ProcesoListItem(BaseModel):
     fecha_vencimiento: date | None
     fecha_actualizacion: datetime
     propietario: str | None = None
-    empleado: str | None = None
-    empleado_activo: bool | None = None  # False = el empleado asignado fue desactivado
 
 
 class ProcesoDetalle(BaseModel):
@@ -95,10 +83,6 @@ class ProcesoDetalle(BaseModel):
     fecha_creacion: datetime
     fecha_actualizacion: datetime
     propietario: str | None = None
-    empleado_id: int | None = None
-    empleado: str | None = None
-    empleado_activo: bool | None = None  # False = el empleado asignado fue desactivado
-    puede_asignar: bool = False         # solo root Admin
     puede_editar_datos: bool = False   # root siempre; cliente solo en Pendiente
-    puede_cambiar_estado: bool = False  # root Admin o el empleado asignado
+    puede_cambiar_estado: bool = False  # solo el administrador
     historial: list[HistorialItem] = []

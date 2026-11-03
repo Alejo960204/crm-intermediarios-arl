@@ -1,14 +1,15 @@
 /**
  * Política de tratamiento de datos personales (Ley 1581 de 2012 y decretos reglamentarios).
- * BORRADOR: complete [NIT], [CORREO] y [DIRECCIÓN] (constante CONTACTO_DATOS) y haga revisar el texto por su asesor legal antes de salir a producción.
+ * BORRADOR: complete [CORREO] y [DIRECCIÓN] (constante CONTACTO_DATOS) y haga revisar el texto por su asesor legal antes de salir a producción.
  * Si modifica el texto, cambie también VERSION_POLITICA en backend/src/app/services/auth_service.py.
  */
-export const CONTACTO_DATOS = { correo: "[CORREO]", direccion: "[DIRECCIÓN]", razonSocial: "PROGRESCOL BIC S.A.S.", nit: "[NIT]" };
+export const CONTACTO_DATOS = { correo: "[CORREO]", direccion: "[DIRECCIÓN]", razonSocial: "PROGRESCOL BIC S.A.S.", nit: "900.588.200-5" };
 
 export default function TextoConsentimiento() {
   return (
-    <div className="max-h-44 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600"
-      tabIndex={0} aria-label="Política de tratamiento de datos personales">
+    <div className="max-h-64 overflow-y-auto rounded border border-slate-200 bg-slate-50 p-3 text-justify text-xs leading-relaxed text-slate-600"
+      tabIndex={0} aria-label="Política de tratamiento de datos personales" lang="es"
+      style={{ textAlign: "justify", textJustify: "inter-word", hyphens: "auto", WebkitHyphens: "auto" }}>
       <p className="font-semibold text-slate-700">Autorización para el tratamiento de datos personales</p>
       <p className="mt-1">
         En cumplimiento de la Ley 1581 de 2012, el Decreto 1377 de 2013 y demás normas que los modifiquen o complementen,

@@ -24,6 +24,21 @@ def create_access_token(usuario_id: int) -> str:
 
 def decode_access_token(token: str) -> int:
     payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    if payload.get("pur"):  # los tickets de un solo propósito (p. ej. consentimiento) no sirven como sesión
+        raise jwt.InvalidTokenError("Token no válido para sesión")
+    return int(payload["sub"])
+
+
+def create_ticket(usuario_id: int, proposito: str, minutos: int = 10) -> str:
+    """Ticket firmado y de corta vida para continuar un paso intermedio del login (no abre sesión)."""
+    exp = datetime.now(timezone.utc) + timedelta(minutes=minutos)
+    return jwt.encode({"sub": str(usuario_id), "pur": proposito, "exp": exp}, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_ticket(token: str, proposito: str) -> int:
+    payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    if payload.get("pur") != proposito:
+        raise jwt.InvalidTokenError("Ticket no válido")
     return int(payload["sub"])
 
 

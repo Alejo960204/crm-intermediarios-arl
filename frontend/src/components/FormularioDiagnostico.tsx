@@ -231,7 +231,7 @@ export default function FormularioDiagnostico({ empresaId, diagnosticoId }: { em
               <option value="">Sin seleccionar</option>
               {intermediarios.map((i) => <option key={i.id} value={i.id}>{i.razon_social ?? "(sin razón social)"} · RUI {i.rui} · NIT {i.nit}</option>)}
             </select>
-            {intermediarios.length === 0 && <span className="text-xs text-amber-700">El cliente dueño de la empresa aún no tiene registros de intermediario.</span>}
+            {intermediarios.length === 0 && <span className="text-xs text-amber-700">El intermediario dueño de la empresa aún no tiene registros de intermediario.</span>}
             {errores.registro_id && <span className="block text-xs text-red-600">{errores.registro_id}</span>}
           </label>
           <p className="text-xs text-slate-500">Se tomarán la razón social como nombre, y el RUI y el NIT como clave ARL y cédula.</p>

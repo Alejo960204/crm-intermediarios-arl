@@ -2,9 +2,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import AvisoPaquete from "@/components/AvisoPaquete";
 import {
   actualizarEmpresa, ApiError, clearToken, crearEmpresa, listarDepartamentos, listarMunicipios, listarUsuarios,
-  obtenerEmpresa, obtenerUsuarioActual, type Departamento, type EmpresaEntrada, type Municipio, type Usuario,
+  obtenerCupo, obtenerEmpresa, obtenerUsuarioActual, type Cupo, type Departamento, type EmpresaEntrada, type EmpresaNueva, type Municipio, type Usuario,
   type UsuarioListado,
 } from "@/lib/api";
 
@@ -15,11 +16,13 @@ const VACIA: EmpresaEntrada = {
   contratistas_independientes: "", estudiantes_decreto_055: "", tasa_cotizacion: "", arl_actual: "",
   tiempo_afiliacion_arl: "", valor_cotizacion_arl: "",
 };
+const ACCESO_VACIO = { login_email: "", login_password: "", max_empleados: "" };
 const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm";
 
 export default function FormularioEmpresa({ empresaId }: { empresaId?: number }) {
   const router = useRouter();
   const [f, setF] = useState<EmpresaEntrada>(VACIA);
+  const [acceso, setAcceso] = useState(ACCESO_VACIO);
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [clientes, setClientes] = useState<UsuarioListado[]>([]);
   const [deptos, setDeptos] = useState<Departamento[]>([]);
@@ -28,6 +31,8 @@ export default function FormularioEmpresa({ empresaId }: { empresaId?: number })
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
+  const [inactiva, setInactiva] = useState(false);
+  const [cupo, setCupo] = useState<Cupo | null>(null);
 
   function fallo(e: unknown) {
     if (e instanceof ApiError && e.status === 401) { clearToken(); router.replace("/login"); return; }
@@ -41,11 +46,13 @@ export default function FormularioEmpresa({ empresaId }: { empresaId?: number })
         const u = await obtenerUsuarioActual();
         setUsuario(u);
         const [d, cl] = await Promise.all([
-          listarDepartamentos(), u.rol === "root Admin" ? listarUsuarios() : Promise.resolve([]),
+          listarDepartamentos(), u.rol === "administrador" ? listarUsuarios() : Promise.resolve([]),
         ]);
-        setDeptos(d); setClientes(cl.filter((x) => x.rol === "cliente" && x.activo));
+        setDeptos(d); setClientes(cl.filter((x) => x.rol === "intermediario" && x.activo));
+        if (!empresaId && u.rol === "intermediario") setCupo(await obtenerCupo());
         if (empresaId) {
           const e = await obtenerEmpresa(empresaId);
+          setInactiva(e.inactiva);
           const nuevo = { ...VACIA };
           (Object.keys(VACIA) as (keyof EmpresaEntrada)[]).forEach((k) => { nuevo[k] = e[k] == null ? "" : String(e[k]); });
           setF(nuevo);
@@ -66,7 +73,7 @@ export default function FormularioEmpresa({ empresaId }: { empresaId?: number })
   async function guardar(ev: React.FormEvent) {
     ev.preventDefault(); setError(""); setErrores({}); setGuardando(true);
     try {
-      if (empresaId) await actualizarEmpresa(empresaId, f); else await crearEmpresa(f);
+      if (empresaId) await actualizarEmpresa(empresaId, f); else await crearEmpresa({ ...f, ...acceso } as EmpresaNueva);
       router.push("/empresas");
     } catch (e) { fallo(e); } finally { setGuardando(false); }
   }
@@ -82,17 +89,20 @@ export default function FormularioEmpresa({ empresaId }: { empresaId?: number })
   );
 
   if (cargando) return <main className="p-6 text-sm text-slate-500">Cargando...</main>;
-  const esRoot = usuario?.rol === "root Admin";
-  const lectura = usuario?.rol === "empleado"; // el empleado solo consulta
+  const esRoot = usuario?.rol === "administrador";
+  const sinCupo = !empresaId && !!cupo && !cupo.puede_crear;
+  const lectura = inactiva || sinCupo; // las empresas inactivas solo se consultan
 
   return (
     <main className="mx-auto max-w-4xl p-6">
-      <h1 className="mb-4 text-2xl font-semibold">{lectura ? "Datos de la empresa" : empresaId ? "Editar empresa" : "Nueva empresa"}</h1>
+      <h1 className="mb-4 text-2xl font-semibold">{inactiva ? "Datos de la empresa" : empresaId ? "Editar empresa" : "Nueva empresa"}</h1>
+      {inactiva && <p role="status" className="mb-3 rounded border border-slate-300 bg-slate-100 p-3 text-sm text-slate-700">Esta empresa está <strong>inactiva</strong>: solo se puede consultar. Reactívela desde el listado de empresas para modificarla.</p>}
+      {cupo && <AvisoPaquete cupo={cupo} onCambio={setCupo} />}
       <form onSubmit={guardar} className="space-y-6 rounded-lg bg-white p-6 shadow">
        <fieldset disabled={lectura} className="space-y-6 border-0 p-0">
         {esRoot && (
           <label className="block text-sm">
-            <span className="font-medium">Cliente propietario <span className="text-red-600">*</span></span>
+            <span className="font-medium">Intermediario propietario <span className="text-red-600">*</span></span>
             <select className={INPUT} value={f.usuario_id} onChange={(e) => set("usuario_id", e.target.value)}>
               <option value="">Seleccione...</option>
               {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({c.email})</option>)}
@@ -127,6 +137,33 @@ export default function FormularioEmpresa({ empresaId }: { empresaId?: number })
             {errores.municipio_codigo && <span className="block text-xs text-red-600">{errores.municipio_codigo}</span>}
           </label>
         </fieldset>
+
+        {!empresaId && (
+          <fieldset className="grid gap-4 md:grid-cols-2">
+            <legend className="mb-2 text-sm font-semibold text-slate-600">Acceso de la empresa y empleados</legend>
+            <p className="text-xs text-slate-500 md:col-span-2">La empresa tendrá su propio usuario para ingresar al sistema, ver y editar sus datos, subir documentos y crear sus empleados.</p>
+            <label className="block text-sm">
+              <span className="font-medium">Correo del usuario de la empresa <span className="text-red-600">*</span></span>
+              <input className={INPUT} type="email" autoComplete="off" value={acceso.login_email}
+                onChange={(e) => { setAcceso({ ...acceso, login_email: e.target.value }); setErrores((p) => ({ ...p, login_email: "" })); }} />
+              {errores.login_email && <span className="block text-xs text-red-600">{errores.login_email}</span>}
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium">Contraseña <span className="text-red-600">*</span></span>
+              <input className={INPUT} type="password" autoComplete="new-password" value={acceso.login_password}
+                onChange={(e) => { setAcceso({ ...acceso, login_password: e.target.value }); setErrores((p) => ({ ...p, login_password: "" })); }} />
+              <span className="text-xs text-slate-500">Mínimo 8 caracteres</span>
+              {errores.login_password && <span className="block text-xs text-red-600">{errores.login_password}</span>}
+            </label>
+            <label className="block text-sm">
+              <span className="font-medium">Cupo de empleados</span>
+              <input className={INPUT} type="number" min={0} value={acceso.max_empleados}
+                onChange={(e) => { setAcceso({ ...acceso, max_empleados: e.target.value }); setErrores((p) => ({ ...p, max_empleados: "" })); }} />
+              <span className="text-xs text-slate-500">Cuántos empleados puede crear la empresa. Vacío = sin límite</span>
+              {errores.max_empleados && <span className="block text-xs text-red-600">{errores.max_empleados}</span>}
+            </label>
+          </fieldset>
+        )}
 
         <fieldset className="grid gap-4 md:grid-cols-2">
           <legend className="mb-2 text-sm font-semibold text-slate-600">Personas de contacto</legend>

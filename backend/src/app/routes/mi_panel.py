@@ -7,8 +7,9 @@ from ..constantes import ROL_CLIENTE
 from ..database import get_cursor
 from ..dependencies import get_current_user
 from ..repositories.empresas_repository import POR_VENCER_DIAS
+from ..services import empresas_service
 
-router = APIRouter(prefix="/mi-panel", tags=["Mi panel (cliente)"])
+router = APIRouter(prefix="/mi-panel", tags=["Dashboard del intermediario"])
 
 ESTADOS_REGISTRO = ["Borrador", "En revisión", "Aprobado", "Rechazado"]
 
@@ -22,7 +23,6 @@ class EmpresaPanel(BaseModel):
     arl_destino: str | None = None
     fecha_vencimiento: date | None = None
     dias_restantes: int | None = None   # solo si está Vigente
-    empleado: str | None = None
     alerta: str | None = None           # por_vencer | caducado
 
 
@@ -39,33 +39,36 @@ class PanelOut(BaseModel):
     por_vencer_dias: int
     resumen: ResumenPanel
     empresas: list[EmpresaPanel]
+    cupo: dict | None = None
+    inactivas: int = 0
     registros: dict[str, int]  # estado -> cantidad (todas las claves siempre presentes)
     total_registros: int
 
 
 @router.get("", response_model=PanelOut)
 def mi_panel(usuario: dict = Depends(get_current_user)):
-    """Inicio del cliente: sus empresas con el estado de su proceso más reciente y el resumen de sus registros."""
+    """Inicio del intermediario: sus empresas con el estado de su proceso más reciente y el resumen de sus registros."""
     if usuario["rol"] != ROL_CLIENTE:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Mi panel es solo para clientes")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "El dashboard del intermediario es solo para intermediarios")
     with get_cursor() as cur:
         cur.execute(
             """SELECT e.id, e.nombre, e.nit, up.id AS proceso_id, up.estado, up.arl_destino, up.fecha_vencimiento,
-                      CASE WHEN up.estado = 'Vigente' THEN up.fecha_vencimiento - CURRENT_DATE END AS dias_restantes,
-                      up.empleado
+                      CASE WHEN up.estado = 'Vigente' THEN up.fecha_vencimiento - CURRENT_DATE END AS dias_restantes
                FROM empresas e
                LEFT JOIN LATERAL (
-                   SELECT p.id, p.arl_destino, p.fecha_vencimiento, emp.nombre AS empleado,
+                   SELECT p.id, p.arl_destino, p.fecha_vencimiento,
                           CASE WHEN p.estado = 'Vigente' AND p.fecha_vencimiento <= CURRENT_DATE THEN 'Caducado' ELSE p.estado END AS estado
-                   FROM procesos_afiliacion p LEFT JOIN usuarios emp ON emp.id = p.empleado_id
+                   FROM procesos_afiliacion p
                    WHERE p.empresa_id = e.id ORDER BY p.fecha_creacion DESC, p.id DESC LIMIT 1
                ) up ON TRUE
-               WHERE e.usuario_id = %s AND e.eliminado = FALSE
+               WHERE e.usuario_id = %s AND e.eliminado = FALSE AND e.inactiva = FALSE
                ORDER BY e.nombre""", (usuario["id"],))
         empresas = cur.fetchall()
         cur.execute("SELECT estado, count(*) AS n FROM registros_intermediarios WHERE usuario_id = %s AND eliminado = FALSE GROUP BY estado",
                     (usuario["id"],))
         conteo = {r["estado"]: r["n"] for r in cur.fetchall()}
+        cur.execute("SELECT count(*) AS n FROM empresas WHERE usuario_id = %s AND eliminado = FALSE AND inactiva = TRUE", (usuario["id"],))
+        inactivas = cur.fetchone()["n"]
     for e in empresas:
         d = e["dias_restantes"]
         e["alerta"] = ("caducado" if e["estado"] == "Caducado"
@@ -83,6 +86,8 @@ def mi_panel(usuario: dict = Depends(get_current_user)):
             "por_vencer": cuenta(lambda e: e["alerta"] == "por_vencer"),
         },
         "empresas": empresas,
+        "cupo": empresas_service.cupo(usuario),
+        "inactivas": inactivas,
         "registros": registros,
         "total_registros": sum(registros.values()),
     }

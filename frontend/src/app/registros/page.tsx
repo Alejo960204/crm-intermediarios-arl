@@ -33,7 +33,7 @@ export default function RegistrosPage() {
   const cargar = useCallback(async () => {
     try {
       const u = await obtenerUsuarioActual();
-      if (u.rol === "empleado") { router.replace("/procesos"); return; } // el empleado no usa este módulo
+      if (u.rol === "empresa" || u.rol === "empleado") { router.replace("/procesos"); return; } // estos roles no usan este módulo
       const r = await listarMisRegistros();
       setUsuario(u); setRegistros(r);
     } catch (e) { manejar(e as Error); }
@@ -55,7 +55,7 @@ export default function RegistrosPage() {
     finally { setEliminando(false); }
   }
 
-  const esRoot = usuario?.rol === "root Admin";
+  const esRoot = usuario?.rol === "administrador";
   const columnas = esRoot ? 9 : 8;
 
   return (

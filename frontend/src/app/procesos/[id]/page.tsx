@@ -5,8 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import EstadoProcesoBadge from "@/components/EstadoProcesoBadge";
 import PanelDocumentos from "@/components/PanelDocumentos";
 import {
-  actualizarProceso, ApiError, asignarProceso, cambiarEstadoProceso, clearToken, getToken, listarUsuarios, obtenerProceso,
-  type ProcesoDetalle, type UsuarioListado,
+  actualizarProceso, ApiError, cambiarEstadoProceso, clearToken, getToken, obtenerProceso,
+  type ProcesoDetalle,
 } from "@/lib/api";
 
 const fmt = (d: string | null) => (d ? new Date(d.length === 10 ? `${d}T00:00:00` : d).toLocaleDateString("es-CO") : "—");
@@ -24,8 +24,6 @@ export default function ProcesoPage() {
   const [msg, setMsg] = useState("");
   const [cambio, setCambio] = useState({ fecha_inicio: "", periodo: "", observacion: "" });
   const [ocupado, setOcupado] = useState(false);
-  const [empleados, setEmpleados] = useState<UsuarioListado[]>([]);
-  const [empSel, setEmpSel] = useState("");
 
   const fallo = useCallback((e: unknown) => {
     if ((e as Error).message === "UNAUTHORIZED") { clearToken(); router.replace("/login"); return; }
@@ -34,7 +32,7 @@ export default function ProcesoPage() {
   }, [router]);
 
   const aplicar = (d: ProcesoDetalle) => {
-    setP(d); setArl(d.arl_destino ?? ""); setNum(d.numero_afiliacion ?? ""); setEmpSel(d.empleado_id ? String(d.empleado_id) : "");
+    setP(d); setArl(d.arl_destino ?? ""); setNum(d.numero_afiliacion ?? "");
   };
 
   useEffect(() => {
@@ -43,7 +41,6 @@ export default function ProcesoPage() {
       try {
         const d = await obtenerProceso(Number(id));
         aplicar(d);
-        if (d.puede_asignar) setEmpleados((await listarUsuarios()).filter((x) => x.rol === "empleado" && x.activo));
       } catch (e) { fallo(e); }
     })();
   }, [id, router, fallo]);
@@ -51,12 +48,6 @@ export default function ProcesoPage() {
   async function guardarDatos(ev: React.FormEvent) {
     ev.preventDefault(); setError(""); setMsg(""); setOcupado(true);
     try { aplicar(await actualizarProceso(Number(id), { empresa_id: "", arl_destino: arl, numero_afiliacion: num })); setMsg("Datos guardados."); }
-    catch (e) { fallo(e); } finally { setOcupado(false); }
-  }
-
-  async function asignar() {
-    setError(""); setErrores({}); setMsg(""); setOcupado(true);
-    try { aplicar(await asignarProceso(Number(id), empSel)); setMsg("Asignación guardada."); }
     catch (e) { fallo(e); } finally { setOcupado(false); }
   }
 
@@ -78,10 +69,7 @@ export default function ProcesoPage() {
       <header className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{p.empresa}</h1>
-          <p className="text-xs text-slate-500">NIT {p.nit}{p.propietario ? ` · ${p.propietario}` : ""} · Empleado: {p.empleado ?? "sin asignar"}{p.empleado && p.empleado_activo === false ? " (inactivo)" : ""}</p>
-          {p.empleado_activo === false && p.puede_asignar && (
-            <p className="mt-1 text-xs text-amber-700">El empleado asignado está desactivado y no puede ingresar. Reasigne el proceso a otro empleado.</p>
-          )}
+          <p className="text-xs text-slate-500">NIT {p.nit}{p.propietario ? ` · ${p.propietario}` : ""}</p>
           <Link href={`/empresas/${p.empresa_id}`} className="text-xs text-blue-700 underline">Ver datos de la empresa</Link>
           {" · "}<Link href={`/diagnosticos?empresa_id=${p.empresa_id}`} className="text-xs text-blue-700 underline">Diagnósticos de la empresa</Link>
         </div>
@@ -121,18 +109,6 @@ export default function ProcesoPage() {
         </form>
       </section>
 
-      {p.puede_asignar && (
-        <section className="mb-4 rounded-lg bg-white p-4 text-sm shadow">
-          <label className="block"><span className="font-medium">Empleado responsable</span>
-            <select className={INPUT} value={empSel} onChange={(e) => setEmpSel(e.target.value)}>
-              <option value="">Sin asignar</option>
-              {empleados.map((x) => <option key={x.id} value={x.id}>{x.nombre} ({x.email})</option>)}
-            </select>
-            {errores.empleado_id && <span className="text-xs text-red-600">{errores.empleado_id}</span>}
-          </label>
-          <button disabled={ocupado} onClick={asignar} className="mt-2 rounded bg-blue-700 px-4 py-2 text-sm text-white disabled:opacity-60">Guardar asignación</button>
-        </section>
-      )}
 
       {p.puede_cambiar_estado && siguiente && (
         <section className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
@@ -155,7 +131,7 @@ export default function ProcesoPage() {
               <p className="sm:col-span-2 text-xs text-amber-900">El vencimiento se calcula solo: inicio + 1 mes (Mensual) o + 1 año (Anual).</p>
             </div>
           )}
-          <label className="mt-2 block">Observación (opcional, la ve el cliente)
+          <label className="mt-2 block">Observación (opcional, la ve el intermediario)
             <textarea rows={2} maxLength={1000} className={INPUT} value={cambio.observacion}
               onChange={(e) => setCambio({ ...cambio, observacion: e.target.value })} />
           </label>

@@ -38,6 +38,9 @@ class Settings:
     CODIGO_MINUTOS: int = int(os.getenv("CODIGO_MINUTOS") or "10")
     CODIGO_MAX_INTENTOS: int = int(os.getenv("CODIGO_MAX_INTENTOS") or "5")
     CODIGO_REENVIO_SEGUNDOS: int = int(os.getenv("CODIGO_REENVIO_SEGUNDOS") or "60")
+    # Captcha Cloudflare Turnstile (login y recuperar contraseña). Sin TURNSTILE_SECRET_KEY el captcha queda desactivado.
+    TURNSTILE_SECRET_KEY: str = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
+    TURNSTILE_VERIFY_URL: str = os.getenv("TURNSTILE_VERIFY_URL", "https://challenges.cloudflare.com/turnstile/v0/siteverify").strip()
     CORS_ORIGINS: list[str] = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
 
 

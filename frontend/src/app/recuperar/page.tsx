@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Turnstile, { CAPTCHA_ACTIVO } from "@/components/Turnstile";
 import { confirmarRecuperacion, solicitarRecuperacion } from "@/lib/api";
 
 const INPUT = "mt-1 w-full rounded border border-slate-300 px-3 py-2";
@@ -19,6 +20,8 @@ export default function RecuperarPage() {
   const [aviso, setAviso] = useState("");
   const [cargando, setCargando] = useState(false);
   const [espera, setEspera] = useState(0);
+  const [captcha, setCaptcha] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   useEffect(() => {
     if (espera <= 0) return;
@@ -30,12 +33,13 @@ export default function RecuperarPage() {
     e?.preventDefault();
     setError(""); setAviso(""); setCargando(true);
     try {
-      const r = await solicitarRecuperacion(email.trim());
+      const r = await solicitarRecuperacion(email.trim(), captcha);
       setAviso(r.mensaje); setPaso(2); setCodigo(""); setEspera(ESPERA);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setCargando(false);
+      setCaptcha(null); setCaptchaKey((k) => k + 1); // el token del captcha sirve una sola vez
     }
   }
 
@@ -67,8 +71,9 @@ export default function RecuperarPage() {
             <label className="block text-sm">Correo
               <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={INPUT} />
             </label>
+            <Turnstile onToken={setCaptcha} resetKey={captchaKey} />
             {error && <p className="text-sm text-red-600">{error}</p>}
-            <button disabled={cargando} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
+            <button disabled={cargando || (CAPTCHA_ACTIVO && !captcha)} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
               {cargando ? "Enviando..." : "Enviar código"}
             </button>
           </form>
@@ -91,9 +96,10 @@ export default function RecuperarPage() {
             <button disabled={cargando || codigo.length !== 6} className="w-full rounded-lg bg-blue-700 py-2.5 font-medium text-white disabled:opacity-60">
               {cargando ? "Guardando..." : "Cambiar contraseña"}
             </button>
+            <Turnstile onToken={setCaptcha} resetKey={captchaKey} />
             <div className="flex justify-between text-sm">
               <button type="button" onClick={() => { setPaso(1); setError(""); setAviso(""); }} className="text-slate-600 hover:underline">Cambiar correo</button>
-              <button type="button" onClick={() => pedirCodigo()} disabled={cargando || espera > 0}
+              <button type="button" onClick={() => pedirCodigo()} disabled={cargando || espera > 0 || (CAPTCHA_ACTIVO && !captcha)}
                 className="text-blue-700 hover:underline disabled:text-slate-400 disabled:no-underline">
                 {espera > 0 ? `Reenviar código (${espera} s)` : "Reenviar código"}
               </button>

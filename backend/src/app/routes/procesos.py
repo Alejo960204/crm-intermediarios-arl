@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status
 
 from ..dependencies import get_current_user
-from ..schemas.proceso import AsignacionEntrada, CambioEstado, ProcesoDetalle, ProcesoEntrada, ProcesoListItem
+from ..schemas.proceso import CambioEstado, ProcesoDetalle, ProcesoEntrada, ProcesoListItem
 from ..services import procesos_service
 
 router = APIRouter(prefix="/procesos", tags=["Procesos de afiliación"])
@@ -30,8 +30,3 @@ def actualizar(proceso_id: int, datos: ProcesoEntrada, usuario: dict = Depends(g
 @router.post("/{proceso_id}/estado", response_model=ProcesoDetalle)
 def cambiar_estado(proceso_id: int, datos: CambioEstado, usuario: dict = Depends(get_current_user)):
     return procesos_service.cambiar_estado(usuario, proceso_id, datos)
-
-
-@router.put("/{proceso_id}/asignacion", response_model=ProcesoDetalle)
-def asignar(proceso_id: int, datos: AsignacionEntrada, usuario: dict = Depends(get_current_user)):
-    return procesos_service.asignar(usuario, proceso_id, datos)
